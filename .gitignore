@@ -7,3 +7,5 @@ out/
 !.env.example
 .bitbucket-test-out/
 .tmp-ai-tests/
+yk-pr-intellij/
+
