@@ -1,0 +1,13 @@
+.gitignore
+eslint.config.mjs
+.vscode/**
+src/**
+test/**
+tsconfig.json
+node_modules/**
+out/**/*.map
+*.log
+.env*
+CHANGELOG*
+SPRINT_REPORT*
+*.vsix

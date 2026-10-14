@@ -1,0 +1,9 @@
+node_modules/
+out/
+*.vsix
+*.log
+.env
+.env.*
+!.env.example
+.bitbucket-test-out/
+.tmp-ai-tests/

@@ -1,0 +1,187 @@
+{
+  "name": "bitbucket-ai-review",
+  "displayName": "YKB AI Review",
+  "version": "0.0.2",
+  "icon": "media/icon.png",
+  "publisher": "ykb",
+  "license": "UNLICENSED",
+  "private": true,
+  "engines": {
+    "vscode": "^1.96.0"
+  },
+  "categories": [
+    "Other"
+  ],
+  "activationEvents": [
+    "onCommand:bitbucketAiReview.listPullRequests",
+    "onCommand:bitbucketAiReview.reviewPullRequestUrl",
+    "onCommand:bitbucketAiReview.configureBitbucketConnection",
+    "onCommand:bitbucketAiReview.configureBitbucketCredentials",
+    "onCommand:bitbucketAiReview.configureModelApiKey",
+    "onCommand:bitbucketAiReview.clearStoredCredentials",
+    "onCommand:bitbucketAiReview.showAutoReviewMenu",
+    "onCommand:bitbucketAiReview.toggleAutomaticReview",
+    "onCommand:bitbucketAiReview.runAutomaticReviewNow",
+    "onStartupFinished"
+  ],
+  "main": "./out/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "bitbucketAiReview.showAutoReviewMenu",
+        "category": "YKB AI Review",
+        "title": "Auto Review Menüsü"
+      },
+      {
+        "command": "bitbucketAiReview.toggleAutomaticReview",
+        "category": "YKB AI Review",
+        "title": "Auto Review Aç / Kapat"
+      },
+      {
+        "command": "bitbucketAiReview.runAutomaticReviewNow",
+        "category": "YKB AI Review",
+        "title": "Açık PR'ları Şimdi İncele"
+      },
+      {
+        "command": "bitbucketAiReview.listPullRequests",
+        "category": "YKB AI Review",
+        "title": "Açık PR'ları Listele"
+      },
+      {
+        "command": "bitbucketAiReview.reviewPullRequestUrl",
+        "category": "YKB AI Review",
+        "title": "URL ile PR İncele"
+      },
+      {
+        "command": "bitbucketAiReview.configureBitbucketConnection",
+        "category": "YKB AI Review",
+        "title": "Bağlantı Ayarları"
+      },
+      {
+        "command": "bitbucketAiReview.configureBitbucketCredentials",
+        "category": "YKB AI Review",
+        "title": "Bitbucket Token Kaydet"
+      },
+      {
+        "command": "bitbucketAiReview.configureModelApiKey",
+        "category": "YKB AI Review",
+        "title": "Model API Key Kaydet"
+      },
+      {
+        "command": "bitbucketAiReview.clearStoredCredentials",
+        "category": "YKB AI Review",
+        "title": "Kayıtlı Bilgileri Temizle"
+      },
+      {
+        "command": "bitbucketAiReview.reviewLocalChanges",
+        "category": "YKB AI Review",
+        "title": "AI Review",
+        "icon": "$(inspect)"
+      }
+    ],
+    "configuration": {
+      "title": "YKB AI Review",
+      "properties": {
+        "bitbucketAiReview.bitbucket.baseUrl": {
+          "type": "string",
+          "default": "https://sdlc.yapikredi.com.tr/bitbucket",
+          "description": "Bitbucket Server/Data Center Base URL.",
+          "order": 30
+        },
+        "bitbucketAiReview.bitbucket.token": {
+          "type": "string",
+          "default": "",
+          "description": "Bitbucket Access Token (Personal Access Token). Buraya girebilir veya daha yüksek güvenlik için 'Bitbucket Token Kaydet' komutuyla şifreli kasaya kaydedebilirsiniz.",
+          "order": 35
+        },
+        "bitbucketAiReview.automaticReview.enabled": {
+          "type": "boolean",
+          "default": false,
+          "description": "VS Code açıkken otomatik PR review zamanlayıcısını başlat.",
+          "order": 10
+        },
+        "bitbucketAiReview.automaticReview.intervalMinutes": {
+          "type": "number",
+          "default": 5,
+          "minimum": 1,
+          "maximum": 1440,
+          "description": "Otomatik review kontrol aralığı (dakika).",
+          "order": 20
+        },
+        "bitbucketAiReview.review.extraInstructions": {
+          "type": "string",
+          "default": "",
+          "editPresentation": "multilineText",
+          "description": "Her AI review isteğine eklenen proje özel talimatları.",
+          "order": 40
+        },
+        "bitbucketAiReview.review.repoInstructions": {
+          "type": "object",
+          "default": {},
+          "additionalProperties": {
+            "type": "string"
+          },
+          "markdownDescription": "Repo bazlı ek AI review talimatları. Anahtar repo kimliği, değer o repoya özel talimattır.",
+          "order": 45
+        },
+        "bitbucketAiReview.model.name": {
+          "type": "string",
+          "default": "cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit",
+          "enum": [
+            "cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit",
+            "openai/gpt-oss-120b"
+          ],
+          "enumDescriptions": [
+            "Qwen Custom (cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit)",
+            "Gpt Oss (openai/gpt-oss-120b)"
+          ],
+          "description": "AI model seçimi (hazır modellerden seçin veya settings.json üzerinden özel model yazın).",
+          "order": 50
+        },
+        "bitbucketAiReview.model.baseUrl": {
+          "type": "string",
+          "default": "https://bifrost-proxy-server-dsp-ddi.apps.lan-dev-dc1-ocp.yapikredi.com.tr/v1",
+          "description": "OpenAI uyumlu model servisinin API Base URL adresi.",
+          "order": 70
+        },
+        "bitbucketAiReview.model.apiKey": {
+          "type": "string",
+          "default": "",
+          "description": "AI Model API Key. Buraya girebilir veya 'Model API Key Kaydet' komutuyla şifreli kasaya kaydedebilirsiniz.",
+          "order": 75
+        }
+      }
+    },
+    "menus": {
+      "scm/title": [
+        {
+          "command": "bitbucketAiReview.reviewLocalChanges",
+          "when": "scmProvider == git",
+          "group": "navigation@10"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src",
+    "test": "tsx --test test/*.test.ts",
+    "check": "npm run compile && npm run lint && npm test",
+    "package": "vsce package --allow-missing-repository"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/vscode": "^1.96.0",
+    "@typescript-eslint/eslint-plugin": "^8.18.1",
+    "@typescript-eslint/parser": "^8.18.1",
+    "@vscode/vsce": "^3.2.2",
+    "eslint": "^9.16.0",
+    "tsx": "^4.23.13",
+    "typescript": "^5.7.2"
+  },
+  "extensionDependencies": [
+    "vscode.git"
+  ]
+}
