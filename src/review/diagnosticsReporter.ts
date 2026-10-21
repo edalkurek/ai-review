@@ -1,6 +1,7 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { ReviewFinding } from '../ai/types';
+import { normalizeDiffPath } from '../util/diffLocations';
 
 export class ReviewDiagnosticsReporter implements vscode.Disposable {
   private readonly collection: vscode.DiagnosticCollection;
@@ -25,7 +26,7 @@ export class ReviewDiagnosticsReporter implements vscode.Disposable {
         continue;
       }
 
-      const normalizedRelative = finding.file.replace(/^[ab]\//, '');
+      const normalizedRelative = normalizeDiffPath(finding.file);
       const absolutePath = path.isAbsolute(normalizedRelative)
         ? normalizedRelative
         : path.resolve(workspaceRoot, normalizedRelative);
@@ -38,7 +39,9 @@ export class ReviewDiagnosticsReporter implements vscode.Disposable {
         diagnosticsByUri.set(uriKey, entry);
       }
 
-      const line = finding.line !== undefined && Number.isInteger(finding.line)
+      // Old-side line numbers refer to the removed code, not the working copy; pin those to the file top.
+      const removed = finding.side === 'old';
+      const line = !removed && finding.line !== undefined && Number.isInteger(finding.line)
         ? Math.max(0, finding.line - 1)
         : 0;
 
@@ -48,9 +51,10 @@ export class ReviewDiagnosticsReporter implements vscode.Disposable {
       );
 
       const severity = this.mapSeverity(finding.severity);
+      const location = removed && finding.line !== undefined ? `[Silinen kod, eski satır ${finding.line}] ` : '';
       const message = finding.suggestion
-        ? `${finding.message}\n💡 Öneri: ${finding.suggestion}`
-        : finding.message;
+        ? `${location}${finding.message}\n💡 Öneri: ${finding.suggestion}`
+        : `${location}${finding.message}`;
 
       const diagnostic = new vscode.Diagnostic(range, message, severity);
       diagnostic.source = 'YKB AI Review';

@@ -1,4 +1,4 @@
-import { PullRequestRef } from './types';
+import { PullRequestRef, RepositoryRef } from './types';
 
 const CLOUD_HOST = 'bitbucket.org';
 
@@ -78,3 +78,66 @@ export function parsePullRequestUrl(value: string): PullRequestRef {
 }
 
 export const parseBitbucketPullRequestUrl = parsePullRequestUrl;
+
+/** Parses a Server/Data Center repository browser URL (`…/projects/P/repos/r[/browse…]`). */
+export function parseRepositoryUrl(value: string): RepositoryRef {
+  let url: URL;
+  try {
+    url = new URL(value.trim());
+  } catch {
+    throw new Error('Geçersiz Bitbucket repo adresi');
+  }
+  if ((url.protocol !== 'https:' && url.protocol !== 'http:') || url.username || url.password) {
+    throw new Error('Geçersiz Bitbucket repo adresi');
+  }
+  const segments = url.pathname.split('/').filter(Boolean);
+  const projectsIndex = segments.findIndex((part) => part.toLowerCase() === 'projects');
+  if (projectsIndex < 0 || segments[projectsIndex + 2]?.toLowerCase() !== 'repos' || !segments[projectsIndex + 3]) {
+    throw new Error('Bitbucket repo adresi …/projects/<PROJE>/repos/<repo> biçiminde olmalıdır');
+  }
+  const contextPath = segments.slice(0, projectsIndex).join('/');
+  return {
+    provider: 'server',
+    baseUrl: `${url.protocol}//${url.host}${contextPath ? `/${contextPath}` : ''}`,
+    projectKey: decodeSegment(segments[projectsIndex + 1], 'project'),
+    repositorySlug: decodeSegment(segments[projectsIndex + 3], 'repository'),
+  };
+}
+
+export interface RemoteRepository {
+  host: string;
+  projectKey: string;
+  repositorySlug: string;
+}
+
+/**
+ * Reads project and repository from a Bitbucket Server git remote:
+ * `https://host[/ctx]/scm/P/r.git`, `ssh://git@host[:port]/p/r.git` or `git@host:p/r.git`.
+ */
+export function parseRemoteUrl(value: string): RemoteRepository | undefined {
+  const remote = value.trim();
+  const scp = /^[^@/\s]+@([^:/\s]+):(?!\/)(.+)$/.exec(remote);
+  let host: string;
+  let pathname: string;
+  if (scp) {
+    [, host, pathname] = scp;
+  } else {
+    try {
+      const url = new URL(remote);
+      host = url.hostname;
+      pathname = url.pathname;
+    } catch {
+      return undefined;
+    }
+  }
+  const segments = pathname.replace(/\.git$/i, '').split('/').filter(Boolean);
+  const scmIndex = segments.findIndex((part) => part.toLowerCase() === 'scm');
+  // HTTP remotes carry /scm/; SSH remotes are just /project/repo.
+  const [projectKey, repositorySlug] = scmIndex >= 0 ? segments.slice(scmIndex + 1) : segments.slice(-2);
+  if (!projectKey || !repositorySlug || (scmIndex >= 0 && segments.length !== scmIndex + 3)) return undefined;
+  try {
+    return { host: host.toLowerCase(), projectKey: decodeURIComponent(projectKey), repositorySlug: decodeURIComponent(repositorySlug) };
+  } catch {
+    return undefined;
+  }
+}

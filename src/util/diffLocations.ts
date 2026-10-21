@@ -16,10 +16,10 @@ function scanDiffLines(diff: string): DiffLineLocation[] {
       oldPath = newPath = '';
       inHunk = false;
     } else if (!inHunk && text.startsWith('--- ')) {
-      oldPath = headerPath(text.slice(4), 'a/');
+      oldPath = headerPath(text.slice(4), ['a/', 'src://']);
       newPath = '';
     } else if (!inHunk && text.startsWith('+++ ')) {
-      newPath = headerPath(text.slice(4), 'b/');
+      newPath = headerPath(text.slice(4), ['b/', 'dst://']);
     } else if (text.startsWith('@@ ')) {
       const match = /^@@ -(\d+)(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(text);
       inHunk = Boolean(match);
@@ -31,15 +31,15 @@ function scanDiffLines(diff: string): DiffLineLocation[] {
       const path = newPath || oldPath;
       const srcPath = oldPath && newPath && oldPath !== newPath ? oldPath : undefined;
       if (text.startsWith('+') && newRemaining > 0) {
-        if (path) result.push({ index, location: { path, srcPath, line: newLine, side: 'new', lineType: 'ADDED' } });
+        if (path) result.push({ index, location: { path, srcPath, line: newLine, side: 'new', lineType: 'ADDED', content: text.slice(1) } });
         newLine++; newRemaining--;
       } else if (text.startsWith('-') && oldRemaining > 0) {
-        if (path) result.push({ index, location: { path, srcPath, line: oldLine, side: 'old', lineType: 'REMOVED' } });
+        if (path) result.push({ index, location: { path, srcPath, line: oldLine, side: 'old', lineType: 'REMOVED', content: text.slice(1) } });
         oldLine++; oldRemaining--;
       } else if (text.startsWith(' ') && oldRemaining > 0 && newRemaining > 0) {
         if (path) {
-          result.push({ index, location: { path, srcPath, line: oldLine, side: 'old', lineType: 'CONTEXT' } });
-          result.push({ index, location: { path, srcPath, line: newLine, side: 'new', lineType: 'CONTEXT' } });
+          result.push({ index, location: { path, srcPath, line: oldLine, side: 'old', lineType: 'CONTEXT', content: text.slice(1) } });
+          result.push({ index, location: { path, srcPath, line: newLine, side: 'new', lineType: 'CONTEXT', content: text.slice(1) } });
         }
         oldLine++; newLine++; oldRemaining--; newRemaining--;
       } else if (!text.startsWith('\\')) {
@@ -51,7 +51,7 @@ function scanDiffLines(diff: string): DiffLineLocation[] {
   return result;
 }
 
-function headerPath(value: string, prefix: string): string {
+function headerPath(value: string, prefixes: string[]): string {
   let path = value.split('\t')[0];
   if (path.startsWith('"')) {
     if (!path.endsWith('"')) return '';
@@ -65,7 +65,28 @@ function headerPath(value: string, prefix: string): string {
     if (path.includes('\uFFFD')) return '';
   }
   if (path === '/dev/null') return '';
-  return path.startsWith(prefix) ? path.slice(prefix.length) : path;
+  // Git uses a/ and b/; Bitbucket Server's raw pull request diff uses src:// and dst://.
+  const prefix = prefixes.find((candidate) => path.startsWith(candidate));
+  return prefix ? path.slice(prefix.length) : path;
+}
+
+/** Removes the a/, b/ (git) or src://, dst:// (Bitbucket Server) prefix a diff path may carry. */
+export function normalizeDiffPath(path: string): string {
+  return path.replace(/\\/g, '/').replace(/^\.\//, '').replace(/^(?:[ab]\/|src:\/\/|dst:\/\/)/, '');
+}
+
+/** The repository path a single-file diff section changes (the new path; the old one for deletions). */
+export function diffSectionFiles(section: string): string[] {
+  let oldPath = '', newPath = '';
+  for (const text of section.split(/\r?\n/)) {
+    if (text.startsWith('@@ ')) break;
+    if (text.startsWith('--- ')) oldPath = headerPath(text.slice(4), ['a/', 'src://']);
+    else if (text.startsWith('+++ ')) newPath = headerPath(text.slice(4), ['b/', 'dst://']);
+  }
+  if (newPath || oldPath) return [newPath || oldPath];
+  // Binary or mode-only sections have no ---/+++ lines.
+  const match = /^diff --git (?:a\/|src:\/\/)(.+?) (?:b\/|dst:\/\/)(.+)$/m.exec(section);
+  return match ? [match[2]] : [];
 }
 
 export function changedLineLocations(diff: string): InlineCommentLocation[] {

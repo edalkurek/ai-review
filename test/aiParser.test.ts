@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
-import { parseAIReviewResult, ReviewParseError } from '../src/ai/reviewParser';
+import { parseAIReviewResult, ReviewParseError, validateAIReviewResult } from '../src/ai/reviewParser';
 
 const validReview = {
   summary: 'Validation iyileştirildi.',
@@ -37,4 +37,12 @@ test('eksik veya bozuk JSON için model metnini hata mesajına taşımaz', () =>
     () => parseAIReviewResult(`{ "summary": "${secret}"`),
     (error: unknown) => error instanceof ReviewParseError && !error.message.includes(secret),
   );
+});
+
+test('confidence alanını okur, geçersiz değerde bulguyu atmadan yok sayar', () => {
+  const base = { summary: 'S', riskLevel: 'low', testSuggestions: [], finalComment: 'F' };
+  const finding = { file: 'a.ts', severity: 'low', type: 'bug', message: 'M', suggestion: 'S' };
+  const parsed = validateAIReviewResult({ ...base, findings: [{ ...finding, confidence: 'high' }, { ...finding, confidence: 'kesin' }] });
+  assert.equal(parsed.findings[0].confidence, 'high');
+  assert.equal(parsed.findings[1].confidence, undefined);
 });

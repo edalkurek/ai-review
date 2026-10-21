@@ -19,6 +19,8 @@ export interface ReviewFinding {
   type: FindingType;
   message: string;
   suggestion: string;
+  /** How directly the visible diff proves the issue; absent when the model did not say. */
+  confidence?: RiskLevel;
 }
 
 export interface AIReviewResult {
@@ -37,6 +39,8 @@ export interface ReviewContext {
   chunkLabel?: string;
   files?: readonly string[];
   extraInstructions?: string;
+  /** Numbered post-change lines around the chunk's changes. */
+  fileContext?: string;
 }
 
 export interface ChatMessage {

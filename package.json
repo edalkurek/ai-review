@@ -1,7 +1,7 @@
 {
   "name": "bitbucket-ai-review",
   "displayName": "YKB AI Review",
-  "version": "0.0.2",
+  "version": "0.3.0",
   "icon": "media/icon.png",
   "publisher": "ykb",
   "license": "UNLICENSED",
@@ -115,6 +115,18 @@
           "description": "Her AI review isteğine eklenen proje özel talimatları.",
           "order": 40
         },
+        "bitbucketAiReview.review.instructionsRepository": {
+          "type": "string",
+          "default": "",
+          "markdownDescription": "Ortak AI review talimatlarının tutulduğu Bitbucket reposunun adresi (ör. `https://…/bitbucket/projects/AI/repos/review-instructions`). Repo içinde `general.md` tüm repolara, `projects/<PROJE>/general.md` projeye, `projects/<PROJE>/repos/<repo>.md` tek bir repoya uygulanır. Bu ayarlardaki talimatlar ortak talimatlardan sonra eklenir.",
+          "order": 41
+        },
+        "bitbucketAiReview.review.instructionsBranch": {
+          "type": "string",
+          "default": "",
+          "description": "Ortak talimat reposunda okunacak dal. Boş bırakılırsa reponun varsayılan dalı kullanılır.",
+          "order": 42
+        },
         "bitbucketAiReview.review.repoInstructions": {
           "type": "object",
           "default": {},
@@ -123,6 +135,36 @@
           },
           "markdownDescription": "Repo bazlı ek AI review talimatları. Anahtar repo kimliği, değer o repoya özel talimattır.",
           "order": 45
+        },
+        "bitbucketAiReview.review.contextLines": {
+          "type": "integer",
+          "default": 20,
+          "minimum": 0,
+          "maximum": 200,
+          "description": "Her değişikliğin üstünde ve altında modele bağlam olarak verilecek dosya satırı sayısı. 0 bağlamı kapatır.",
+          "order": 44
+        },
+        "bitbucketAiReview.review.minConfidence": {
+          "type": "string",
+          "default": "medium",
+          "enum": [
+            "low",
+            "medium",
+            "high"
+          ],
+          "enumDescriptions": [
+            "Modelin düşük güvenle verdiği bulgular dahil hepsini göster",
+            "Düşük güvenli (tahmine dayalı) bulguları ele",
+            "Yalnızca diff'te doğrudan kanıtlanan bulguları göster"
+          ],
+          "description": "Gösterilecek/yayımlanacak bulgular için gereken en düşük model güven seviyesi. Güven bilgisi olmayan bulgular her zaman korunur.",
+          "order": 46
+        },
+        "bitbucketAiReview.publish.highSeverityAsTask": {
+          "type": "boolean",
+          "default": true,
+          "description": "Yüksek önemli bulguların satır yorumlarını Bitbucket'ta çözülmesi gereken görev (task) olarak aç.",
+          "order": 47
         },
         "bitbucketAiReview.model.name": {
           "type": "string",

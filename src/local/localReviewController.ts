@@ -1,6 +1,11 @@
 import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { OpenAICompatibleClient, reviewDiffInChunks, AIReviewResult } from '../ai';
+import { readFile } from 'node:fs/promises';
+import { readContextLines, readMinConfidence } from '../config';
+import { parseRemoteUrl } from '../bitbucket/urlParser';
+import { collectFileContext, formatFileContext } from '../review/fileContext';
+import { InstructionSettings, resolveInstructions } from '../review/instructions';
 import { SecretStore } from '../secrets';
 import { ReviewDiagnosticsReporter } from '../review/diagnosticsReporter';
 import { showReviewResult } from '../review/resultPanel';
@@ -24,6 +29,8 @@ export class LocalReviewController implements vscode.Disposable {
     private readonly secrets: SecretStore,
     private readonly output: vscode.LogOutputChannel,
     private readonly diagnostics?: ReviewDiagnosticsReporter,
+    /** Resolves instructions including the shared repository; settings-only when absent. */
+    private readonly instructions?: (remoteUrls: readonly string[], settings: InstructionSettings) => Promise<string>,
   ) {}
 
   public async start(): Promise<void> {
@@ -72,7 +79,7 @@ export class LocalReviewController implements vscode.Disposable {
           const snapshot = await localSnapshot(root);
           const review = await this.review(snapshot, root, controller.signal);
           if (!controller.signal.aborted) {
-            showReviewResult(snapshot.title, review);
+            showReviewResult(snapshot.title, review, { root });
             this.diagnostics?.reportFindings(root, review.findings);
           }
         } finally { listener.dispose(); }
@@ -89,21 +96,28 @@ export class LocalReviewController implements vscode.Disposable {
       apiKey: await this.secrets.get('modelApiKey') || config.get<string>('model.apiKey', ''), signal,
     });
     
-    let instructions = config.get<string>('review.extraInstructions', '');
-    const repoInstructions = config.get<Record<string, string>>('review.repoInstructions', {});
-    
+    const settings: InstructionSettings = {
+      extraInstructions: config.get<string>('review.extraInstructions', ''),
+      repoInstructions: config.get<Record<string, string>>('review.repoInstructions', {}),
+    };
+    let remoteUrls: string[] = [];
     try {
-      const remotes = await git(root, ['remote', '-v']);
-      const remoteUrls = remotes.split('\n').map(line => line.split(/\s+/)[1]).filter(Boolean);
-      for (const [key, repoInstruction] of Object.entries(repoInstructions)) {
-        if (remoteUrls.some(url => url.toLowerCase().includes(key.toLowerCase()))) {
-          instructions = instructions ? `${instructions}\n\nRepo özel talimatları:\n${repoInstruction}` : repoInstruction;
-          break;
-        }
-      }
+      // `origin` first: it is the repository the change is meant for.
+      remoteUrls = (await git(root, ['remote', '-v'])).split('\n')
+        .map((line) => line.split(/\s+/))
+        .sort(([left], [right]) => Number(right === 'origin') - Number(left === 'origin'))
+        .map(([, url]) => url).filter(Boolean);
     } catch {
-      // Ignore git remote error
+      // Without remotes only the general instructions apply.
     }
+    const instructions = this.instructions
+      ? await this.instructions(remoteUrls, settings)
+      : await localInstructions(remoteUrls, settings);
+
+    const fileContext = await collectFileContext(snapshot.diff,
+      (file) => readFile(path.join(root, file), 'utf8').catch(() => undefined),
+      { contextLines: readContextLines(config) });
+    signal.throwIfAborted();
 
     return reviewDiffInChunks(
       client,
@@ -113,6 +127,8 @@ export class LocalReviewController implements vscode.Disposable {
         failOnChunkError: true,
         signal,
         maxChunkChars: 60_000,
+        minConfidence: readMinConfidence(config),
+        fileContext: (files) => formatFileContext(fileContext, files, 15_000),
       },
     );
   }
@@ -127,4 +143,14 @@ export class LocalReviewController implements vscode.Disposable {
     this.stopped = true;
     this.disposables.forEach(item => { item.dispose(); });
   }
+}
+
+/** Settings-only instructions, matched to the repository by its git remote. */
+async function localInstructions(remoteUrls: readonly string[], settings: InstructionSettings): Promise<string> {
+  const remote = remoteUrls.map(parseRemoteUrl).find((parsed) => parsed !== undefined);
+  return (await resolveInstructions({
+    projectKey: remote?.projectKey ?? '',
+    repositorySlug: remote?.repositorySlug ?? '',
+    settingsKey: remote ? `${remote.host}/${remote.projectKey}/${remote.repositorySlug}`.toLowerCase() : '',
+  }, settings)).text;
 }

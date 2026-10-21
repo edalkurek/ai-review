@@ -80,3 +80,51 @@ test('large-file chunks retain original coordinates even after the hunk header i
   assert.equal(continuation, true);
   assert.deepEqual(seen, Array.from({ length: 11 }, (_, index) => 91 + index));
 });
+
+test('reads file names from Bitbucket Server src:// and dst:// diff headers', () => {
+  const server = 'diff --git src://lib/a.ts dst://lib/a.ts\n--- src://lib/a.ts\n+++ dst://lib/a.ts\n@@ -1 +1 @@\n-x\n+y\n'
+    + 'diff --git src://gone.ts dst://gone.ts\n--- src://gone.ts\n+++ /dev/null\n@@ -1 +0,0 @@\n-z\n';
+  assert.deepEqual(chunkDiff(server)[0].files, ['lib/a.ts', 'gone.ts']);
+});
+
+test('merges findings whose messages differ only in punctuation, spacing or case', () => {
+  const base: AIReviewResult = { summary: 'S', riskLevel: 'low', testSuggestions: [], finalComment: 'F', findings: [] };
+  const finding = { file: 'a.ts', line: 3, side: 'new' as const, type: 'bug' as const, suggestion: 'Fix' };
+  const merged = mergeReviewResults([
+    { ...base, findings: [{ ...finding, severity: 'medium', message: 'Toplam yanlış hesaplanıyor.' }] },
+    { ...base, findings: [{ ...finding, file: 'b/a.ts', severity: 'high', message: 'toplam  yanlış hesaplanıyor' },
+      { ...finding, severity: 'low', message: 'Başka bir sorun' }] },
+  ]);
+  assert.deepEqual(merged.findings.map((x) => [x.severity, x.message]),
+    [['high', 'toplam  yanlış hesaplanıyor'], ['low', 'Başka bir sorun']]);
+});
+
+test('drops findings below the minimum confidence, keeps unrated ones and lowers risk accordingly', async () => {
+  const finding = { file: 'a.ts', line: 1, side: 'new' as const, type: 'bug' as const, message: 'M', suggestion: 'S' };
+  const client: AIReviewClient = {
+    reviewDiff: async () => ({ summary: 'S', riskLevel: 'high', testSuggestions: [], finalComment: 'F', findings: [
+      { ...finding, severity: 'high', confidence: 'low', message: 'Guess' },
+      { ...finding, severity: 'medium', confidence: 'high', message: 'Proven' },
+      { ...finding, severity: 'low', message: 'Unrated' },
+    ] }),
+  };
+  const result = await reviewDiffInChunks(client, fileDiff('a.ts', '+x\n'), {}, { minConfidence: 'medium' });
+  assert.deepEqual(result.findings.map((x) => x.message), ['Proven', 'Unrated']);
+  assert.equal(result.riskLevel, 'medium');
+});
+
+test('multi-chunk reviews get one synthesized summary; a broken synthesis keeps the joined summaries', async () => {
+  const result = (summary: string): AIReviewResult => ({ summary, riskLevel: 'low', findings: [], testSuggestions: [], finalComment: `${summary} sonuç` });
+  const diff = fileDiff('a.ts', `+${'a'.repeat(50)}\n`) + fileDiff('b.ts', `+${'b'.repeat(50)}\n`);
+  let calls = 0;
+  const reviewDiff = async (content: string): Promise<AIReviewResult> => result(content.includes('a.ts') ? 'A' : 'B');
+  const synthesized = await reviewDiffInChunks({ reviewDiff, chat: async (messages) => {
+    calls++;
+    assert.match(messages[0].content, /<untrusted_review_data>[\s\S]*"A"[\s\S]*"B"/);
+    return 'Yanıt: {"summary": "Tek özet", "finalComment": "Tek sonuç"}';
+  } }, diff, {}, { maxChunkChars: 120 });
+  assert.equal(calls, 1);
+  assert.deepEqual([synthesized.summary, synthesized.finalComment], ['Tek özet', 'Tek sonuç']);
+  const fallback = await reviewDiffInChunks({ reviewDiff, chat: async () => 'geçersiz' }, diff, {}, { maxChunkChars: 120 });
+  assert.equal(fallback.summary, 'A B');
+});

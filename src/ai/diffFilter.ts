@@ -1,13 +1,7 @@
+import { diffSectionFiles } from '../util/diffLocations';
+
 export function isBinaryDiffSection(content: string): boolean {
   return /Binary files .* differ/i.test(content) || /GIT binary patch/i.test(content);
-}
-
-function fileFromDiffHeader(header: string): string[] {
-  const match = /^diff --git a\/(.+?) b\/(.+)$/m.exec(header);
-  if (!match) {
-    return [];
-  }
-  return [match[2]];
 }
 
 export interface FilterDiffResult {
@@ -45,11 +39,11 @@ export function filterDiff(diff: string): FilterDiffResult {
 
   starts.forEach((start, index) => {
     const sectionContent = diff.slice(start, starts[index + 1] ?? diff.length);
-    const files = fileFromDiffHeader(sectionContent);
+    const files = diffSectionFiles(sectionContent);
     const isBinary = isBinaryDiffSection(sectionContent);
 
     if (isBinary) {
-      files.forEach((f) => excludedFiles.add(f.replace(/^[ab]\//, '')));
+      files.forEach((f) => excludedFiles.add(f));
     } else {
       keptSections.push(sectionContent);
     }

@@ -39,7 +39,8 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   
   const coordinator = new ReviewCoordinator(secrets, output, context.globalState, diagnostics, diffProvider);
   const automaticReview = new AutomaticReviewController(coordinator, output);
-  const localReview = new LocalReviewController(context, secrets, output, diagnostics);
+  const localReview = new LocalReviewController(context, secrets, output, diagnostics,
+    (remoteUrls, settings) => coordinator.instructionsForRemotes(remoteUrls, settings));
 
   context.subscriptions.push(
     output,
@@ -154,8 +155,8 @@ async function pickPullRequest(pullRequests: PullRequest[]): Promise<PullRequest
 
 async function choosePublication(): Promise<boolean | undefined> {
   const selection = await vscode.window.showQuickPick([
-    { label: 'Yalnızca VS Code’da göster', value: false },
-    { label: 'Bitbucket’a yorum yaz', value: true },
+    { label: 'Önce VS Code’da göster', description: 'Bulguları inceleyip seçtiklerinizi Bitbucket’a gönderin', value: false },
+    { label: 'Bitbucket’a yorum yaz', description: 'Tüm bulgular doğrudan yayımlanır', value: true },
   ], { title: 'Review sonucu nasıl işlensin?' });
   return selection?.value;
 }

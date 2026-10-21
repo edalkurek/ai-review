@@ -27,12 +27,13 @@ const errors: string[] = [];
 const opened = new Event<unknown>();
 let root = '';
 let modelCalls: string[] = [];
+let settings: Record<string, unknown> = {};
 const result = { summary: '<script>unsafe</script>', riskLevel: 'low', findings: [], testSuggestions: [], finalComment: 'reviewed' };
 const vscode = {
   Uri: { file: (fsPath: string) => ({ fsPath }) }, ViewColumn: { One: 1, Beside: 2 }, ProgressLocation: { Notification: 15 },
   workspace: {
     isTrusted: true, onDidGrantWorkspaceTrust: new Event<void>().event,
-    getConfiguration: () => ({ get: (key: string, fallback: unknown) => ({ 'model.baseUrl': 'http://model.invalid/v1', 'model.name': 'test-model' })[key] ?? fallback }),
+    getConfiguration: () => ({ get: (key: string, fallback: unknown) => ({ 'model.baseUrl': 'http://model.invalid/v1', 'model.name': 'test-model', ...settings })[key] ?? fallback }),
     onDidChangeConfiguration: new Event<void>().event,
   },
   extensions: { getExtension: () => ({ activate: async () => ({ getAPI: () => ({ repositories: [{ rootUri: { fsPath: root } }], onDidOpenRepository: opened.event }) }) }) },
@@ -55,7 +56,7 @@ async function fixture() {
   await git(root, ['init', '-b', 'main']); await git(root, ['config', 'user.email', 'test@example.invalid']);
   await git(root, ['config', 'user.name', 'Test']); await git(root, ['config', 'commit.gpgsign', 'false']);
   await writeFile(path.join(root, 'file.txt'), 'base\n'); await git(root, ['add', '.']); await git(root, ['commit', '-m', 'base']);
-  panels.length = 0; errors.length = 0; modelCalls = [];
+  panels.length = 0; errors.length = 0; modelCalls = []; settings = {};
   const previousFetch = globalThis.fetch;
   globalThis.fetch = async (_url, options) => {
     modelCalls.push(String(options?.body));
@@ -75,7 +76,9 @@ test('manual SCM review renders report without Commit/Push or approval actions',
   await writeFile(path.join(root, 'new.txt'), 'untracked\n');
   const indexBefore = await readFile(path.join(root, '.git/index'));
   await f.controller.reviewLocal({ rootUri: { fsPath: root } } as never);
-  assert.equal(panels.length, 1); assert.equal(panels[0].options.enableScripts, false);
+  assert.equal(panels.length, 1);
+  // Scripts only open finding locations; a local review never offers publishing.
+  assert.doesNotMatch(panels[0].webview.html, /id="publish"|class="pick"/);
   assert.doesNotMatch(panels[0].webview.html, /Onayla ve Devam Et/);
   assert.match(modelCalls.join(), /staged/); assert.match(modelCalls.join(), /working/); assert.match(modelCalls.join(), /untracked/);
   assert.equal((await git(root, ['rev-parse', 'HEAD'])).trim(), f.head);
@@ -98,4 +101,15 @@ test('controller start automatically uninstalls legacy hooks and unsets core.hoo
 
   const hooksPath = (await git(repo, ['config', '--local', '--get', 'core.hooksPath']).catch(() => '')).trim();
   assert.equal(hooksPath, '');
+});
+test('local review matches repository instructions by the git remote, not by a substring of it', async t => {
+  const f = await fixture(); t.after(f.dispose);
+  await git(root, ['remote', 'add', 'origin', 'ssh://git@git.test:7999/PAY/payment-api.git']);
+  settings = { 'review.extraInstructions': 'Genel kural', 'review.repoInstructions': { 'git.test/pay/payment-api': 'Ödeme reposu kuralı', 'git.test/pay/other': 'Başka repo' } };
+  await staged();
+  await f.controller.reviewLocal({ rootUri: { fsPath: root } } as never);
+  const prompt = modelCalls.join();
+  assert.match(prompt, /Genel kural/);
+  assert.match(prompt, /Ödeme reposu kuralı/);
+  assert.doesNotMatch(prompt, /Başka repo/);
 });

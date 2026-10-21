@@ -17,6 +17,8 @@ interface SetupViewState {
   automaticReviewEnabled: boolean;
   automaticReviewIntervalMinutes: number;
   repoInstructions: Record<string, string>;
+  instructionsRepository: string;
+  instructionsBranch: string;
 }
 
 export async function openBitbucketSetup(
@@ -93,6 +95,8 @@ async function readViewState(secrets: SecretStore): Promise<SetupViewState> {
     automaticReviewEnabled: configuration.get<boolean>('automaticReview.enabled', false),
     automaticReviewIntervalMinutes: configuration.get<number>('automaticReview.intervalMinutes', 5),
     repoInstructions: configuration.get<Record<string, string>>('review.repoInstructions', {}),
+    instructionsRepository: configuration.get<string>('review.instructionsRepository', ''),
+    instructionsBranch: configuration.get<string>('review.instructionsBranch', ''),
   };
 }
 
@@ -114,6 +118,8 @@ async function saveSetup(input: BitbucketSetupInput, secrets: SecretStore): Prom
   await configuration.update('automaticReview.intervalMinutes', input.automaticReviewIntervalMinutes, target);
   await configuration.update('automaticReview.enabled', input.automaticReviewEnabled, target);
   await configuration.update('review.repoInstructions', input.repoInstructions, target);
+  await configuration.update('review.instructionsRepository', input.instructionsRepository, target);
+  await configuration.update('review.instructionsBranch', input.instructionsBranch, target);
 }
 
 async function postStatus(
@@ -153,6 +159,10 @@ function setupHtml(state: SetupViewState): string {
       <div><label for="automaticReviewIntervalMinutes">Auto-Review: Interval Minutes</label><input id="automaticReviewIntervalMinutes" type="number" min="1" max="1440" required value="${state.automaticReviewIntervalMinutes}"></div>
       <div class="wide"><label for="baseUrl">Bitbucket Base URL</label><input id="baseUrl" type="url" required value="${escapeAttribute(state.baseUrl)}" placeholder="https://sdlc.yapikredi.com.tr/bitbucket"><small>Bitbucket Server/Data Center kök adresi.</small></div>
       <div class="wide"><label for="extraInstructions">Genel Extra Instructions</label><textarea id="extraInstructions" placeholder="Tüm projeler için geçerli ekstra review kuralları.">${escapeHtml(state.extraInstructions)}</textarea></div>
+
+      <div class="wide section"><h2>Ortak Talimat Reposu</h2></div>
+      <div class="wide"><label for="instructionsRepository">Talimat reposu adresi</label><input id="instructionsRepository" type="url" value="${escapeAttribute(state.instructionsRepository)}" placeholder="https://sdlc.yapikredi.com.tr/bitbucket/projects/AI/repos/review-instructions"><small>Ekipçe paylaşılan talimatlar: <code>general.md</code> tüm repolara, <code>projects/&lt;PROJE&gt;/general.md</code> projeye, <code>projects/&lt;PROJE&gt;/repos/&lt;repo&gt;.md</code> tek repoya uygulanır. Aşağıdaki kişisel talimatlar bunlardan sonra eklenir. Boş bırakılırsa kullanılmaz.</small></div>
+      <div><label for="instructionsBranch">Dal</label><input id="instructionsBranch" type="text" value="${escapeAttribute(state.instructionsBranch)}" placeholder="varsayılan dal"></div>
 
       <div class="wide section">
         <h2>Repo Özel Talimatları</h2>
@@ -342,7 +352,8 @@ function setupHtml(state: SetupViewState): string {
           extraInstructions: byId('extraInstructions').value, modelName: effectiveModel,
           modelBaseUrl: byId('modelBaseUrl').value, bitbucketToken: byId('bitbucketToken').value,
           modelApiKey: byId('modelApiKey').value, automaticReviewEnabled: byId('automaticReviewEnabled').checked,
-          automaticReviewIntervalMinutes: Number(byId('automaticReviewIntervalMinutes').value), repoInstructions: window.repoInstructions });
+          automaticReviewIntervalMinutes: Number(byId('automaticReviewIntervalMinutes').value), repoInstructions: window.repoInstructions,
+          instructionsRepository: byId('instructionsRepository').value, instructionsBranch: byId('instructionsBranch').value });
       }));
       window.addEventListener('message', (event) => {
         if (!event.data) return;

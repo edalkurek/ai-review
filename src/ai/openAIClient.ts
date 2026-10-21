@@ -107,6 +107,8 @@ export class OpenAICompatibleClient implements AIReviewClient {
   private readonly endpoint: string;
   private readonly timeoutMs: number;
   private readonly fetchImpl: FetchLike;
+  /** Set once the gateway rejects response_format, so later requests skip it. */
+  private jsonModeUnsupported = false;
 
   constructor(private readonly options: OpenAIClientOptions) {
     this.endpoint = endpointFor(options.baseUrl);
@@ -134,11 +136,11 @@ export class OpenAICompatibleClient implements AIReviewClient {
 
   async reviewDiff(diff: string, context: ReviewContext = {}): Promise<AIReviewResult> {
     const messages = buildReviewMessages(diff, context);
-    const content = await this.chat(messages);
+    const content = await this.chat(messages, { json: true });
     return parseAIReviewResult(content);
   }
 
-  async chat(messages: ChatMessage[]): Promise<string> {
+  async chat(messages: ChatMessage[], options: { json?: boolean } = {}): Promise<string> {
     if (messages.length === 0) {
       throw new AIClientError('Model mesaj listesi boş olamaz.');
     }
@@ -167,6 +169,7 @@ export class OpenAICompatibleClient implements AIReviewClient {
               model: this.options.model,
               messages,
               temperature: this.options.temperature ?? 0.1,
+              ...(options.json && !this.jsonModeUnsupported ? { response_format: { type: 'json_object' } } : {}),
               ...(this.options.maxTokens === undefined
                 ? {}
                 : { max_tokens: this.options.maxTokens }),
@@ -175,6 +178,11 @@ export class OpenAICompatibleClient implements AIReviewClient {
           });
 
           if (!response.ok) {
+            // Not every OpenAI-compatible gateway supports JSON mode; fall back to the prompt contract.
+            if (response.status === 400 && options.json && !this.jsonModeUnsupported) {
+              this.jsonModeUnsupported = true;
+              continue;
+            }
             if (isRetryableStatus(response.status) && attempt < MAX_RETRY_ATTEMPTS) {
               const retryAfterHeader = typeof response.headers?.get === 'function'
                 ? response.headers.get('Retry-After')

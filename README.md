@@ -172,6 +172,7 @@ Değiştirilen kod üzerinden olası hataları, güvenlik açıklarını ve perf
 | AI Model API Key | Model servisinin gerektirdiği API anahtarı |
 | Model | İncelemede kullanılacak model kimliği |
 | Extra Instructions | Her incelemeye eklenecek proje kuralları |
+| Talimat reposu adresi / Dal | Ekipçe paylaşılan talimatların tutulduğu Bitbucket reposu ([Ortak talimat reposu](#-ortak-talimat-reposu)) |
 | Auto-Review: Enabled | Otomatik PR incelemesini açar veya kapatır |
 | Auto-Review: Interval Minutes | Otomatik kontrol aralığı; varsayılan 5 dakika |
 
@@ -213,6 +214,38 @@ Yalnızca diff ve verilen bağlamla desteklenen sorunları raporla. Her bulguda
 dosya/satır, tetikleyici koşul, hatalı davranış ve uygulanabilir düzeltme belirt.
 Görünmeyen kod hakkında varsayım yapma; somut hata yoksa bulgu üretme.
 ```
+
+### 📚 Ortak talimat reposu
+
+Talimatları her geliştiricinin ayarlarına ayrı ayrı yazmak yerine Bitbucket'ta ortak bir repoda tutabilirsiniz. Böylece talimatlar ekipçe aynı olur, değişiklikleri PR ile gözden geçirilir ve yeni katılan herkes otomatik olarak aynı kuralları kullanır.
+
+Kurulum panelindeki **Talimat reposu adresi** alanına (ayar: `bitbucketAiReview.review.instructionsRepository`) reponun Bitbucket adresini girin, örneğin `https://sdlc.yapikredi.com.tr/bitbucket/projects/AI/repos/review-instructions`. Belirli bir dalı okumak için **Dal** alanını doldurun; boş bırakılırsa reponun varsayılan dalı kullanılır. Repo, Bitbucket Base URL ile aynı sunucuda olmalıdır ve Bitbucket token'ınızın bu repoyu okuma yetkisi bulunmalıdır.
+
+Repo düzeni:
+
+```text
+review-instructions/
+├── general.md                         ← tüm repolar
+└── projects/
+    └── PAY/
+        ├── general.md                 ← PAY projesindeki tüm repolar
+        └── repos/
+            └── payment-api.md         ← yalnızca PAY/payment-api
+```
+
+Proje klasörü Bitbucket'taki proje anahtarıyla (`PAY`) ya da küçük harfle (`pay`) adlandırılabilir; repo dosyasının adı repo slug'ıdır. Olmayan dosyalar atlanır.
+
+Bir inceleme için talimatlar genelden özele şu sırayla birleştirilir; çelişki olursa sonra gelen geçerlidir:
+
+1. Ortak repo `general.md`
+2. Ortak repo `projects/<PROJE>/general.md`
+3. Ortak repo `projects/<PROJE>/repos/<repo>.md`
+4. Ayarlardaki **Extra Instructions**
+5. Ayarlardaki **Repo Özel Talimatları**
+
+Kullanılan dosyalar **YKB AI Review** çıktı kanalında listelenir. Dosyalar 10 dakika önbellekte tutulur; repo geçici olarak okunamazsa son okunan içerik kullanılır ve inceleme durmaz. Toplam talimat uzunluğu 12.000 karakteri aşarsa en genel bölümler çıkarılır ve çıktı kanalına uyarı yazılır. Ortak talimatlar da diğer talimatlar gibi sistem kurallarını (kanıt şartı, güvenlik kuralları, çıktı biçimi) geçersiz kılamaz.
+
+Yerel değişiklik incelemesinde repo, `origin` remote adresinden (HTTPS veya SSH) bulunur.
 
 ## 🔎 Manuel PR inceleme
 

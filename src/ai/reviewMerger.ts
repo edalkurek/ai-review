@@ -1,3 +1,4 @@
+import { normalizeDiffPath } from '../util/diffLocations';
 import { AIReviewResult, ReviewFinding, RiskLevel } from './types';
 
 const RISK_SCORE: Record<RiskLevel, number> = { low: 0, medium: 1, high: 2 };
@@ -15,10 +16,11 @@ function uniqueNonEmpty(values: string[]): string[] {
 }
 
 function findingKey(finding: ReviewFinding): string {
-  return [finding.file, finding.side, finding.line, finding.type, finding.message]
-    .join('\u0000')
-    .trim()
-    .toLocaleLowerCase('tr-TR');
+  // Wording differences (punctuation, spacing, case) must not publish the same issue twice;
+  // distinct messages on one line stay separate findings.
+  const message = finding.message.toLocaleLowerCase('tr-TR').replace(/[\p{P}\s]+/gu, ' ').trim();
+  return [normalizeDiffPath(finding.file), finding.side, finding.line, finding.type, message]
+    .join('\u0000');
 }
 
 export function mergeReviewResults(results: readonly AIReviewResult[]): AIReviewResult {

@@ -68,7 +68,7 @@ test('publishes visible context lines on both sides with CONTEXT anchors and pre
   const ref: PullRequestRef = { provider: 'server', baseUrl: 'https://bitbucket.test', projectKey: 'TEST', repositorySlug: 'repo', pullRequestId: 1 };
   const unmatched: string[] = [];
   assert.deepEqual(await publishReview(client, ref, input, diff, 'context', state,
-    (finding) => unmatched.push(finding.message)), { inlineComments: 2, generalOnlyFindings: 1 });
+    (finding) => unmatched.push(finding.message)), { inlineComments: 2, generalOnlyFindings: 1, skippedExisting: 0 });
   assert.deepEqual(unmatched, ['Issue 99']);
   assert.deepEqual(requests.slice(0, 2).map(({ anchor }) => [anchor?.line, anchor?.fileType, anchor?.lineType]),
     [[20, 'TO', 'CONTEXT'], [10, 'FROM', 'CONTEXT']]);
@@ -105,11 +105,11 @@ test('retries emoji-rejected inline comments with readable plain labels and the 
   } as BitbucketClient;
   const input = { ...review, findings: [review.findings[0]] };
   assert.deepEqual(await publishReview(client, {} as PullRequestRef, input, diff, 'emoji', state),
-    { inlineComments: 1, generalOnlyFindings: 0 });
+    { inlineComments: 1, generalOnlyFindings: 0, skippedExisting: 0 });
   assert.deepEqual(sent.map(({ line }) => line), [21, 21]);
-  assert.match(sent[0].text, /🔴 Hata · Yüksek önem/);
-  assert.match(sent[1].text, /Sorun/);
-  assert.match(sent[1].text, /Düzeltme önerisi/);
+  assert.match(sent[0].text, /🔴 \*\*Hata · Yüksek önem\*\*/);
+  assert.match(sent[1].text, /Hata · Yüksek önem/);
+  assert.match(sent[1].text, /Öneri:/);
   assert.match(sent[1].text, /Issue 21/);
   assert.match(sent[1].text, /Fix it/);
   assert.doesNotMatch(sent[1].text, /\p{Extended_Pictographic}/u);
@@ -175,7 +175,7 @@ test('groups distinct issues on one line, deduplicates repeats and publishes a c
   assert.match(general, /Issue 99/);
   assert.match(general, /Fix it/);
   assert.doesNotMatch(general, /Issue 21|Another issue|Another fix|Deleted issue/);
-  assert.match(general, /new\.ts.*21/);
+  assert.match(general, /4 bulgu ilgili satırlara yorum olarak eklendi \(4 yüksek\)/);
   await publishReview(client, {} as PullRequestRef, input, diff, 'grouped', state);
   assert.equal(calls.length, 3);
 });
@@ -240,11 +240,43 @@ test('model request through Server publication produces two line anchors and exa
     update: async (key, value) => { saved.set(key, value); },
   };
   const ref: PullRequestRef = { provider: 'server', baseUrl: 'https://bitbucket.test', projectKey: 'TEST', repositorySlug: 'repo', pullRequestId: 1 };
-  assert.deepEqual(await publishReview(client, ref, result, diff, 'integration', state), { inlineComments: 2, generalOnlyFindings: 1 });
+  assert.deepEqual(await publishReview(client, ref, result, diff, 'integration', state), { inlineComments: 2, generalOnlyFindings: 1, skippedExisting: 0 });
   assert.deepEqual(requests.map((request) => request.anchor?.fileType ?? 'general'), ['TO', 'FROM', 'general']);
   assert.deepEqual(requests.slice(0, 2).map((request) => [request.anchor?.line, request.anchor?.lineType, request.anchor?.path, request.anchor?.srcPath]),
     [[21, 'ADDED', 'new.ts', 'old.ts'], [11, 'REMOVED', 'new.ts', 'old.ts']]);
   assert.match(requests[2].text, /Issue 99/);
   await publishReview(client, ref, result, diff, 'integration', state);
   assert.equal(requests.length, 3);
+});
+
+test('strips Bitbucket Server src:// and dst:// diff prefixes so anchors use repository paths', () => {
+  const input = 'diff --git src://lib/app.ts dst://lib/app.ts\n--- src://lib/app.ts\n+++ dst://lib/app.ts\n@@ -1,1 +1,2 @@\n keep\n+added\n';
+  const locations = changedLineLocations(input);
+  assert.deepEqual(locations.map((x) => [x.path, x.srcPath, x.line, x.side]), [['lib/app.ts', undefined, 2, 'new']]);
+  assert.equal(findInlineLocation({ ...review.findings[0], file: 'dst://lib/app.ts', line: 2 }, locations)?.path, 'lib/app.ts');
+});
+
+test('does not repeat findings an earlier review already posted, even after lines shift', async () => {
+  const posted: string[] = [];
+  const state = (): PublicationState => {
+    const saved = new Map<string, unknown>();
+    return { get: <T>(key: string, fallback: T): T => saved.has(key) ? saved.get(key) as T : fallback,
+      update: async (key, value) => { saved.set(key, value); } };
+  };
+  const client = {
+    addInlineComment: async (_ref, text) => { posted.push(text); return { id: 1, text }; },
+    addGeneralComment: async (_ref, text) => { posted.push(text); return { id: 2, text }; },
+  } as BitbucketClient;
+  const input = { ...review, findings: [review.findings[0]] };
+  await publishReview(client, {} as PullRequestRef, input, diff, 'first', state(), undefined,
+    { reviewMarker: '<!-- bitbucket-ai-review:pr=1:commit=a:model=m -->' });
+  assert.match(posted[0], /\[\/\/\]: # \(bitbucket-ai-review:finding=[0-9a-f]{32}\)/);
+  assert.match(posted[1], /\[\/\/\]: # \(bitbucket-ai-review:pr=1:commit=a:model=m\)/);
+  // Two lines inserted above: same code, same issue, new line number.
+  const shifted = diff.replace('@@ -10,2 +20,3 @@', '@@ -10,2 +22,3 @@');
+  const result = await publishReview(client, {} as PullRequestRef, { ...input, findings: [{ ...input.findings[0], line: 23 }] },
+    shifted, 'second', state(), undefined, { existingComments: [...posted] });
+  assert.deepEqual(result, { inlineComments: 0, generalOnlyFindings: 0, skippedExisting: 1 });
+  assert.equal(posted.length, 3);
+  assert.match(posted[2], /1 bulgu ilgili satırlara/);
 });

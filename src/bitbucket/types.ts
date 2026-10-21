@@ -27,13 +27,16 @@ export interface BitbucketServerConfig {
 
 export type BitbucketConfig = BitbucketCloudConfig | BitbucketServerConfig;
 
-export interface PullRequestRef {
+export interface RepositoryRef {
   provider: BitbucketProvider;
   baseUrl: string;
   repositorySlug: string;
-  pullRequestId: number;
   workspace?: string;
   projectKey?: string;
+}
+
+export interface PullRequestRef extends RepositoryRef {
+  pullRequestId: number;
 }
 
 export interface PullRequestAuthor {
@@ -77,6 +80,8 @@ export interface InlineCommentLocation {
   line: number;
   side: 'old' | 'new';
   lineType: 'ADDED' | 'REMOVED' | 'CONTEXT';
+  /** The line's code (without the diff marker); used locally, never sent to Bitbucket. */
+  content?: string;
 }
 
 export interface BitbucketClient {
@@ -84,9 +89,12 @@ export interface BitbucketClient {
   listOpenPullRequestsForReviewer(): Promise<PullRequest[]>;
   getPullRequestDiff(ref: PullRequestRef): Promise<string>;
   getLatestCommitHash(ref: PullRequestRef): Promise<string>;
+  /** File text at a commit or ref (default branch when omitted); undefined when the file does not exist there. */
+  getFileContent(ref: RepositoryRef, path: string, at?: string): Promise<string | undefined>;
   listPullRequestComments(ref: PullRequestRef): Promise<PullRequestComment[]>;
   addGeneralComment(ref: PullRequestRef, text: string): Promise<PullRequestComment>;
-  addInlineComment(ref: PullRequestRef, text: string, location: InlineCommentLocation): Promise<PullRequestComment>;
+  /** `blocker` opens the comment as a task that must be resolved (Bitbucket Server only). */
+  addInlineComment(ref: PullRequestRef, text: string, location: InlineCommentLocation, options?: { blocker?: boolean }): Promise<PullRequestComment>;
   hasCommentMarker(ref: PullRequestRef, marker: string): Promise<boolean>;
 }
 

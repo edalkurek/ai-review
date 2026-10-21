@@ -3,6 +3,7 @@ import {
   FINDING_TYPES,
   RISK_LEVELS,
   ReviewFinding,
+  RiskLevel,
 } from './types';
 
 const MAX_TEXT_LENGTH = 20_000;
@@ -69,6 +70,8 @@ function validateFinding(value: unknown, index: number): ReviewFinding {
     type: enumValue(value.type, FINDING_TYPES, `findings[${index}].type`),
     message: requiredString(value.message, `findings[${index}].message`),
     suggestion: requiredString(value.suggestion, `findings[${index}].suggestion`),
+    // Optional and advisory: an unknown value must not discard an otherwise valid finding.
+    ...(RISK_LEVELS.includes(value.confidence as RiskLevel) ? { confidence: value.confidence as RiskLevel } : {}),
   };
 }
 

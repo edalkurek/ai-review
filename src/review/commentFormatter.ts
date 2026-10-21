@@ -6,19 +6,19 @@ export interface ReviewCommentMetadata {
   modelName: string;
 }
 
-const RISK_LABELS: Record<RiskLevel, string> = {
+export const RISK_LABELS: Record<RiskLevel, string> = {
   low: 'Düşük',
   medium: 'Orta',
   high: 'Yüksek',
 };
 
-const RISK_ICONS: Record<RiskLevel, string> = {
+export const RISK_ICONS: Record<RiskLevel, string> = {
   low: '🟢',
   medium: '🟡',
   high: '🔴',
 };
 
-const FINDING_LABELS: Record<FindingType, string> = {
+export const FINDING_LABELS: Record<FindingType, string> = {
   bug: 'Hata',
   security: 'Güvenlik',
   performance: 'Performans',
@@ -49,29 +49,35 @@ function inlineCode(value: string): string {
 
 function formatFinding(finding: ReviewFinding): string {
   const severity = RISK_LABELS[finding.severity];
-  return `- **${severity} · ${finding.type} · ${inlineCode(finding.file)}:** ${compactText(finding.message, 240)} Öneri: ${compactText(finding.suggestion, 200)}`;
+  return `- **${severity} · ${FINDING_LABELS[finding.type]} · ${inlineCode(finding.file)}:** ${compactText(finding.message, 240)} Öneri: ${compactText(finding.suggestion, 200)}`;
 }
 
 export function formatInlineComment(finding: ReviewFinding): string {
-  return `### ${RISK_ICONS[finding.severity]} ${FINDING_LABELS[finding.type]} · ${RISK_LABELS[finding.severity]} önem
-
-**🔎 Sorun**
+  // Kept compact so it reads like a reviewer's line comment, not a report.
+  return `${RISK_ICONS[finding.severity]} **${FINDING_LABELS[finding.type]} · ${RISK_LABELS[finding.severity]} önem**
 
 ${finding.message}
 
-**💡 Düzeltme önerisi**
+💡 **Öneri:** ${finding.suggestion}`;
+}
 
-${finding.suggestion}`;
+function inlineSummary(findings: readonly ReviewFinding[]): string {
+  const counts = (['high', 'medium', 'low'] as const)
+    .map((severity) => [RISK_LABELS[severity], findings.filter((finding) => finding.severity === severity).length] as const)
+    .filter(([, count]) => count > 0)
+    .map(([label, count]) => `${count} ${label.toLocaleLowerCase('tr-TR')}`);
+  return `- ${findings.length} bulgu ilgili satırlara yorum olarak eklendi (${counts.join(', ')}).`;
 }
 
 export function formatReviewComment(
   review: AIReviewResult,
   inlineFindings: ReadonlySet<ReviewFinding> = new Set(),
 ): string {
+  // Line comments already carry their details; only unanchored findings are listed here.
+  const inline = review.findings.filter((finding) => inlineFindings.has(finding));
+  const general = review.findings.filter((finding) => !inlineFindings.has(finding));
   const findings = review.findings.length > 0
-    ? [...new Set(review.findings.map((finding) => inlineFindings.has(finding)
-      ? `- **${RISK_LABELS[finding.severity]} · ${finding.type} · ${inlineCode(finding.file)}:${finding.line} (${finding.side === 'old' ? 'eski' : 'yeni'}):** Sorun ve düzeltme önerisi satır içi yorumda.`
-      : formatFinding(finding)))].join('\n')
+    ? [...(inline.length ? [inlineSummary(inline)] : []), ...new Set(general.map(formatFinding))].join('\n')
     : '- Ciddi veya doğrudan aksiyon gerektiren bir bulgu tespit edilmedi.';
   const tests = review.testSuggestions.length > 0
     ? review.testSuggestions.map((suggestion) => `- ${compactText(suggestion, 200)}`).join('\n')
@@ -92,6 +98,12 @@ ${tests}
 
 ### 📝 Genel değerlendirme
 ${compactText(review.finalComment || review.summary, TEXT_LIMITS.FINAL_COMMENT)}`;
+}
+
+/** A markdown link reference definition: CommonMark keeps it in the source but does not render it. */
+export function hiddenMarker(key: string): string {
+  const raw = /<!--\s*([^>]+?)\s*-->/.exec(key)?.[1] ?? key;
+  return `[//]: # (${raw.replace(/[()]/g, '')})`;
 }
 
 export function sanitizeCommentForServer(text: string): string {

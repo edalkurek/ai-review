@@ -289,3 +289,31 @@ test('Server client sets X-Atlassian-Token header and surfaces Bitbucket error m
 
   assert.equal(new Headers(mock.seen[0].init.headers).get('X-Atlassian-Token'), 'no-check');
 });
+
+test('Server opens blocker line comments as tasks only when requested', async () => {
+  const mock = mockFetch(() => jsonResponse({ id: 1, text: 'review' }));
+  const server = new BitbucketServerClient({ provider: 'server', baseUrl: serverRef.baseUrl, auth: { method: 'bearer', token: 'test' } }, mock.fetch);
+  const location = { path: 'a.ts', line: 3, side: 'new', lineType: 'ADDED' } as const;
+  await server.addInlineComment(serverRef, 'review', location, { blocker: true });
+  await server.addInlineComment(serverRef, 'review', location);
+  assert.equal(JSON.parse(String(mock.seen[0].init.body)).severity, 'BLOCKER');
+  assert.equal(JSON.parse(String(mock.seen[1].init.body)).severity, undefined);
+});
+
+test('Server reads raw file content at a commit and treats a missing file as undefined', async () => {
+  const mock = mockFetch((url) => url.includes('gone.ts') ? new Response('', { status: 404, statusText: 'Not Found' }) : new Response('line 1\nline 2'));
+  const server = new BitbucketServerClient({ provider: 'server', baseUrl: serverRef.baseUrl, auth: { method: 'bearer', token: 'test' } }, mock.fetch);
+  assert.equal(await server.getFileContent(serverRef, 'src/my file.ts', 'abc123'), 'line 1\nline 2');
+  assert.equal(mock.seen[0].url, 'https://git.example.test/bitbucket/rest/api/1.0/projects/APP/repos/widgets/raw/src/my%20file.ts?at=abc123');
+  assert.equal(await server.getFileContent(serverRef, 'gone.ts', 'abc123'), undefined);
+});
+
+test('Server reads shared files from a branch or, without one, from the default branch', async () => {
+  const mock = mockFetch(() => new Response('kural'));
+  const server = new BitbucketServerClient({ provider: 'server', baseUrl: serverRef.baseUrl, auth: { method: 'bearer', token: 'test' } }, mock.fetch);
+  const rules = { provider: 'server' as const, baseUrl: serverRef.baseUrl, projectKey: 'AI', repositorySlug: 'rules' };
+  await server.getFileContent(rules, 'projects/PAY/general.md', 'refs/heads/main');
+  await server.getFileContent(rules, 'general.md');
+  assert.equal(mock.seen[0].url, 'https://git.example.test/bitbucket/rest/api/1.0/projects/AI/repos/rules/raw/projects/PAY/general.md?at=refs%2Fheads%2Fmain');
+  assert.equal(mock.seen[1].url, 'https://git.example.test/bitbucket/rest/api/1.0/projects/AI/repos/rules/raw/general.md');
+});

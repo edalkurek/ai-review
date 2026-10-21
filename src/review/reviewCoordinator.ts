@@ -1,7 +1,7 @@
 import * as vscode from 'vscode';
-import { OpenAICompatibleClient, reviewDiffInChunks, AIReviewResult } from '../ai';
-import { BitbucketAuth, BitbucketClient, PullRequest, PullRequestRef, Repository, createBitbucketClient } from '../bitbucket';
-import { ConfigurationError, ExtensionConfig, getExtensionConfig, getRepoInstructionsFor } from '../config';
+import { OpenAICompatibleClient, reviewDiffInChunks, AIReviewResult, ReviewFinding, RiskLevel, RISK_LEVELS } from '../ai';
+import { BitbucketAuth, BitbucketClient, PullRequest, PullRequestRef, Repository, createBitbucketClient, parseRemoteUrl } from '../bitbucket';
+import { ConfigurationError, ExtensionConfig, getExtensionConfig, getRepoKey } from '../config';
 import { SecretStore } from '../secrets';
 import { createReviewCommentMarker } from './commentFormatter';
 import { showReviewResult } from './resultPanel';
@@ -9,6 +9,8 @@ import { publishReview } from './publishReview';
 
 import { ReviewDiagnosticsReporter } from './diagnosticsReporter';
 import { PRDiffProvider } from './diffProvider';
+import { collectFileContext, formatFileContext } from './fileContext';
+import { InstructionSettings, InstructionTarget, SharedInstructionsCache, resolveInstructions } from './instructions';
 
 export interface ReviewOutcome {
   review?: AIReviewResult;
@@ -24,6 +26,8 @@ export interface ReviewCoordinatorOptions {
 }
 
 export class ReviewCoordinator {
+  private readonly sharedInstructions = new SharedInstructionsCache();
+
   public constructor(
     private readonly secrets: SecretStore,
     private readonly output: vscode.LogOutputChannel,
@@ -79,11 +83,16 @@ export class ReviewCoordinator {
     }
     const pr = options.pullRequest;
     
-    let instructions = config.review.extraInstructions;
-    const repoInstructions = getRepoInstructionsFor(config, ref);
-    if (repoInstructions) {
-      instructions = instructions ? `${instructions}\n\nRepo özel talimatları:\n${repoInstructions}` : repoInstructions;
-    }
+    const instructions = await this.loadInstructions(bitbucket, config, {
+      projectKey: ref.projectKey ?? ref.workspace ?? '',
+      repositorySlug: ref.repositorySlug,
+      settingsKey: getRepoKey(ref),
+    }, config.review, `PR #${ref.pullRequestId}`);
+    options.signal?.throwIfAborted();
+
+    const fileContext = await collectFileContext(diff, (file) => bitbucket.getFileContent(ref, file, commitHash),
+      { contextLines: config.review.contextLines });
+    options.signal?.throwIfAborted();
 
     const review = await reviewDiffInChunks(model, diff, {
       title: pr?.title,
@@ -92,6 +101,8 @@ export class ReviewCoordinator {
       extraInstructions: instructions,
     }, {
       maxChunkChars: config.review.maxDiffCharacters,
+      minConfidence: config.review.minConfidence,
+      fileContext: (files) => formatFileContext(fileContext, files, Math.floor(config.review.maxDiffCharacters / 4)),
       signal: options.signal,
       onChunkError: (error, index, total) => {
         this.output.error(`AI review parçası ${index + 1}/${total} başarısız: ${safeMessage(error)}`);
@@ -105,6 +116,39 @@ export class ReviewCoordinator {
       this.diagnostics?.reportFindings(workspaceRoot, review.findings);
     }
 
+    const publishFindings = async (findings: readonly ReviewFinding[]): Promise<'published' | 'duplicate'> => {
+      if (this.state.get<boolean>(this.reviewKey(ref, marker), false) || await bitbucket.hasCommentMarker(ref, marker)) {
+        this.output.info(`PR #${ref.pullRequestId}: aynı commit/model için yorum zaten mevcut.`);
+        return 'duplicate';
+      }
+      if (await bitbucket.getLatestCommitHash(ref) !== commitHash) {
+        throw new Error('PR inceleme sırasında değişti. Güncel commit için yeniden inceleme başlatın.');
+      }
+      const existingComments = (await bitbucket.listPullRequestComments(ref))
+        .filter((comment) => !comment.deleted).map((comment) => comment.text);
+      // Risk follows the published findings; the prompt defines it as their highest severity.
+      const riskLevel = findings.reduce<RiskLevel>((highest, finding) =>
+        RISK_LEVELS.indexOf(finding.severity) > RISK_LEVELS.indexOf(highest) ? finding.severity : highest, 'low');
+      const selected = findings.length === review.findings.length ? review : { ...review, findings: [...findings], riskLevel };
+      const publication = await publishReview(bitbucket, ref, selected, diff, this.reviewKey(ref, marker), this.state, (finding) => {
+        const reason = finding.line === undefined
+          ? 'Model geçerli satır konumu döndürmedi.'
+          : finding.side === undefined
+            ? 'Taraf bilgisi eksik; konum diff üzerinde tek bir satırla eşleştirilemedi.'
+            : 'Dosya, satır ve taraf bilgisi diff üzerinde bulunamadı.';
+        this.output.warn(`PR #${ref.pullRequestId}: satır yorumu genel yoruma alındı (${JSON.stringify({ file: finding.file, line: finding.line, side: finding.side })}). ${reason}`);
+      }, { highSeverityAsTask: config.publish.highSeverityAsTask, existingComments, reviewMarker: marker });
+      this.output.info(`PR #${ref.pullRequestId}: ${publication.inlineComments} satır yorumu ve 1 genel yorum yayımlandı.`);
+      if (publication.generalOnlyFindings > 0) {
+        this.output.warn(`PR #${ref.pullRequestId}: ${publication.generalOnlyFindings} bulgu için diff üzerinde kesin satır konumu bulunamadı; bu bulgular genel yorumda yer alıyor.`);
+      }
+      if (publication.skippedExisting > 0) {
+        this.output.info(`PR #${ref.pullRequestId}: ${publication.skippedExisting} bulgu önceki bir incelemede zaten satır yorumu olarak eklendiği için tekrar yazılmadı.`);
+      }
+      await this.state.update(this.reviewKey(ref, marker), true);
+      return 'published';
+    };
+
     if (options.showResult) {
       if (this.diffProvider) {
         const diffId = `PR-${ref.pullRequestId}.diff`;
@@ -113,34 +157,19 @@ export class ReviewCoordinator {
         const doc = await vscode.workspace.openTextDocument(diffUri);
         await vscode.window.showTextDocument(doc, { preview: true, viewColumn: vscode.ViewColumn.One });
       }
-      showReviewResult(pr?.title ?? `PR #${ref.pullRequestId}`, review);
-    }
-    if (options.publish && (this.state.get<boolean>(this.reviewKey(ref, marker), false)
-      || await bitbucket.hasCommentMarker(ref, marker))) {
-      this.output.info(`PR #${ref.pullRequestId}: aynı commit/model için yorum zaten mevcut.`);
-      return { review, published: false, skippedDuplicate: true };
-    }
-    if (options.publish) {
-      if (await bitbucket.getLatestCommitHash(ref) !== commitHash) {
-        throw new Error('PR inceleme sırasında değişti. Güncel commit için yeniden inceleme başlatın.');
-      }
-      const publication = await publishReview(bitbucket, ref, review, diff, this.reviewKey(ref, marker), this.state, (finding) => {
-        const reason = finding.line === undefined
-          ? 'Model geçerli satır konumu döndürmedi.'
-          : finding.side === undefined
-            ? 'Taraf bilgisi eksik; konum diff üzerinde tek bir satırla eşleştirilemedi.'
-            : 'Dosya, satır ve taraf bilgisi diff üzerinde bulunamadı.';
-        this.output.warn(`PR #${ref.pullRequestId}: satır yorumu genel yoruma alındı (${JSON.stringify({ file: finding.file, line: finding.line, side: finding.side })}). ${reason}`);
+      showReviewResult(pr?.title ?? `PR #${ref.pullRequestId}`, review, {
+        root: workspaceRoot,
+        // Reviewing without publishing lets the user pick which findings reach the pull request.
+        onPublish: options.publish ? undefined : async (findings): Promise<string> => await publishFindings(findings) === 'duplicate'
+          ? 'Bu commit/model için yorum zaten mevcut; tekrar yayınlanmadı.'
+          : `${findings.length} bulgu Bitbucket'a gönderildi.`,
       });
-      this.output.info(`PR #${ref.pullRequestId}: ${publication.inlineComments} satır yorumu ve 1 genel yorum yayımlandı.`);
-      if (publication.generalOnlyFindings > 0) {
-        this.output.warn(`PR #${ref.pullRequestId}: ${publication.generalOnlyFindings} bulgu için diff üzerinde kesin satır konumu bulunamadı; bu bulgular genel yorumda yer alıyor.`);
-      }
     }
-    if (options.publish) {
-      await this.state.update(this.reviewKey(ref, marker), true);
+    if (!options.publish) {
+      return { review, published: false, skippedDuplicate: false };
     }
-    return { review, published: options.publish, skippedDuplicate: false };
+    const outcome = await publishFindings(review.findings);
+    return { review, published: outcome === 'published', skippedDuplicate: outcome === 'duplicate' };
   }
 
   private reviewKey(ref: PullRequestRef, marker: string): string {
@@ -162,6 +191,57 @@ export class ReviewCoordinator {
       signal,
     });
     return { bitbucket, model, config };
+  }
+
+/**
+   * Instructions for a local repository, identified by its git remotes. The shared repository is read
+   * only when Bitbucket is configured; otherwise the given settings alone are used.
+   */
+  public async instructionsForRemotes(remoteUrls: readonly string[], settings: InstructionSettings): Promise<string> {
+    let clients: { bitbucket: BitbucketClient; config: ExtensionConfig } | undefined;
+    try {
+      clients = await this.createBitbucket();
+    } catch (error) {
+      this.output.warn(`Yerel inceleme: ortak talimatlar okunamadı, yalnızca ayarlardaki talimatlar kullanılıyor (${safeMessage(error)}).`);
+    }
+    const remote = remoteUrls.map(parseRemoteUrl).find((parsed) => parsed !== undefined);
+    if (!remote) {
+      return (await resolveInstructions({ projectKey: '', repositorySlug: '', settingsKey: '' }, settings)).text;
+    }
+    // Settings keys use the configured server's host (with port); SSH remotes report the bare hostname.
+    const serverHost = clients ? new URL(clients.config.bitbucket.baseUrl) : undefined;
+    const host = serverHost && serverHost.hostname.toLowerCase() === remote.host ? serverHost.host : remote.host;
+    const target: InstructionTarget = {
+      projectKey: remote.projectKey,
+      repositorySlug: remote.repositorySlug,
+      settingsKey: `${host}/${remote.projectKey}/${remote.repositorySlug}`.toLowerCase(),
+    };
+    return this.loadInstructions(clients?.bitbucket, clients?.config, target, settings, 'Yerel inceleme');
+  }
+
+  private async loadInstructions(
+    bitbucket: BitbucketClient | undefined,
+    config: ExtensionConfig | undefined,
+    target: InstructionTarget,
+    settings: InstructionSettings,
+    label: string,
+  ): Promise<string> {
+    const shared = config?.review.sharedInstructions;
+    const reader = bitbucket && shared
+      ? this.sharedInstructions.reader(
+        JSON.stringify([shared.repository.projectKey, shared.repository.repositorySlug, shared.branch]),
+        (path) => bitbucket.getFileContent(shared.repository, path, shared.branch ? `refs/heads/${shared.branch}` : undefined),
+      )
+      : undefined;
+    const resolved = await resolveInstructions(target, settings, reader);
+    if (resolved.failed.length) {
+      this.output.warn(`${label}: ortak talimat dosyaları okunamadı (${resolved.failed.join(', ')}); inceleme bunlar olmadan sürüyor.`);
+    }
+    if (resolved.sources.length) this.output.info(`${label}: talimatlar → ${resolved.sources.join(', ')}`);
+    if (resolved.truncated) {
+      this.output.warn(`${label}: talimatlar uzunluk sınırını aştı; en genel bölümler çıkarıldı.`);
+    }
+    return resolved.text;
   }
 
   private async createBitbucket(): Promise<{

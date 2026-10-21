@@ -1,5 +1,7 @@
 import * as vscode from 'vscode';
-import { PullRequestRef, Repository } from './bitbucket/types';
+import { RISK_LEVELS, RiskLevel } from './ai/types';
+import { RepositoryRef } from './bitbucket/types';
+import { parseRepositoryUrl } from './bitbucket/urlParser';
 
 const CONFIGURATION_SECTION = 'bitbucketAiReview';
 const DEFAULT_MAX_DIFF_CHARACTERS = 60_000;
@@ -22,7 +24,19 @@ export interface ExtensionConfig {
     readonly maxDiffCharacters: number;
     readonly extraInstructions: string;
     readonly repoInstructions: Record<string, string>;
+    readonly minConfidence: RiskLevel;
+    readonly contextLines: number;
+    readonly sharedInstructions?: SharedInstructionsSettings;
   };
+  readonly publish: {
+    readonly highSeverityAsTask: boolean;
+  };
+}
+
+export interface SharedInstructionsSettings {
+  readonly repository: RepositoryRef;
+  /** Branch to read; empty means the repository's default branch. */
+  readonly branch: string;
 }
 
 export class ConfigurationError extends Error {
@@ -63,6 +77,36 @@ function readSafeHttpUrl(
   return url.toString().replace(/\/$/, '');
 }
 
+export function readMinConfidence(configuration: vscode.WorkspaceConfiguration): RiskLevel {
+  const value = configuration.get<string>('review.minConfidence', 'medium');
+  return RISK_LEVELS.includes(value as RiskLevel) ? value as RiskLevel : 'medium';
+}
+
+export function readContextLines(configuration: vscode.WorkspaceConfiguration): number {
+  const value = configuration.get<number>('review.contextLines', 20);
+  return Number.isInteger(value) && value >= 0 ? Math.min(value, 200) : 20;
+}
+
+/** The shared instructions repository, or undefined when none is configured. */
+export function readSharedInstructions(
+  configuration: vscode.WorkspaceConfiguration,
+  bitbucketBaseUrl: string,
+): SharedInstructionsSettings | undefined {
+  const address = configuration.get<string>('review.instructionsRepository', '').trim();
+  if (!address) return undefined;
+  let repository: RepositoryRef;
+  try {
+    repository = parseRepositoryUrl(address);
+  } catch (error) {
+    throw new ConfigurationError(`${CONFIGURATION_SECTION}.review.instructionsRepository: ${error instanceof Error ? error.message : 'geçersiz adres'}`);
+  }
+  // The Bitbucket token is only ever sent to the configured server.
+  if (new URL(repository.baseUrl).origin !== new URL(bitbucketBaseUrl).origin) {
+    throw new ConfigurationError('Talimat reposu, yapılandırılan Bitbucket sunucusunda olmalıdır.');
+  }
+  return { repository: { ...repository, baseUrl: bitbucketBaseUrl }, branch: configuration.get<string>('review.instructionsBranch', '').trim() };
+}
+
 export function getExtensionConfig(): ExtensionConfig {
   const configuration = vscode.workspace.getConfiguration(CONFIGURATION_SECTION);
   const intervalMinutes = configuration.get<number>('automaticReview.intervalMinutes', 5);
@@ -93,6 +137,12 @@ export function getExtensionConfig(): ExtensionConfig {
       maxDiffCharacters: DEFAULT_MAX_DIFF_CHARACTERS,
       extraInstructions: configuration.get<string>('review.extraInstructions', '').trim(),
       repoInstructions: configuration.get<Record<string, string>>('review.repoInstructions', {}),
+      minConfidence: readMinConfidence(configuration),
+      contextLines: readContextLines(configuration),
+      sharedInstructions: readSharedInstructions(configuration, bitbucketBaseUrl),
+    },
+    publish: {
+      highSeverityAsTask: configuration.get<boolean>('publish.highSeverityAsTask', true),
     },
   };
 }
@@ -114,9 +164,4 @@ export function getRepoKey(repo: { provider: string; baseUrl: string; projectKey
   const parent = repo.provider === 'cloud' ? repo.workspace : repo.projectKey;
   const slug = repo.slug || repo.repositorySlug;
   return `${host}/${parent}/${slug}`.toLowerCase();
-}
-
-export function getRepoInstructionsFor(config: ExtensionConfig, ref: PullRequestRef): string | undefined {
-  const key = getRepoKey(ref);
-  return config.review.repoInstructions[key];
 }

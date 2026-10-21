@@ -59,3 +59,18 @@ test('HTTP hata gövdesini veya API anahtarını hata mesajına sızdırmaz', as
       && !error.message.includes('sk-secret'),
   );
 });
+
+test('review isteğinde JSON modunu ister, desteklenmiyorsa bir kez onsuz tekrar dener', async () => {
+  const formats: unknown[] = [];
+  const fetchImpl: FetchLike = async (_url, init) => {
+    const body = JSON.parse(init.body) as { response_format?: unknown };
+    formats.push(body.response_format);
+    if (body.response_format) return { ok: false, status: 400, json: async () => ({}) };
+    return { ok: true, status: 200, json: async () => ({ choices: [{ message: { content: reviewJson } }] }) };
+  };
+  const client = new OpenAICompatibleClient({ baseUrl: 'http://127.0.0.1:1234/v1', model: 'm', fetchImpl });
+  await client.reviewDiff('+x');
+  await client.reviewDiff('+y');
+  await client.chat([{ role: 'user', content: 'kısalt' }]);
+  assert.deepEqual(formats, [{ type: 'json_object' }, undefined, undefined, undefined]);
+});

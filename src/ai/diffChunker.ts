@@ -1,5 +1,5 @@
 import { filterDiff } from './diffFilter';
-import { annotateDiffLines } from '../util/diffLocations';
+import { annotateDiffLines, diffSectionFiles } from '../util/diffLocations';
 
 export interface DiffChunk {
   index: number;
@@ -11,14 +11,6 @@ export interface DiffChunk {
 interface DiffSection {
   files: string[];
   content: string;
-}
-
-function fileFromHeader(header: string): string[] {
-  const match = /^diff --git a\/(.+?) b\/(.+)$/m.exec(header);
-  if (!match) {
-    return [];
-  }
-  return [match[2]];
 }
 
 function fileSections(diff: string): DiffSection[] {
@@ -37,7 +29,7 @@ function fileSections(diff: string): DiffSection[] {
   }
   starts.forEach((start, index) => {
     const content = diff.slice(start, starts[index + 1] ?? diff.length);
-    sections.push({ files: fileFromHeader(content), content });
+    sections.push({ files: diffSectionFiles(content), content });
   });
   return sections;
 }

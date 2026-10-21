@@ -19,6 +19,7 @@ import {
   PullRequestComment,
   PullRequestRef,
   Repository,
+  RepositoryRef,
 } from './types';
 
 type UnknownRecord = Record<string, unknown>;
@@ -70,11 +71,15 @@ function encodePath(value: string): string {
   return encodeURIComponent(value);
 }
 
+function encodeFilePath(path: string): string {
+  return path.split('/').map(encodeURIComponent).join('/');
+}
+
 function authHeader(auth: BitbucketAuth): string {
   return `Bearer ${auth.token}`;
 }
 
-function requireRef(ref: PullRequestRef, provider: 'cloud' | 'server'): void {
+function requireRef(ref: RepositoryRef, provider: 'cloud' | 'server'): void {
   if (ref.provider !== provider) {
     throw new Error(`Cannot use a ${ref.provider} pull request with the ${provider} client`);
   }
@@ -88,7 +93,8 @@ function requireRef(ref: PullRequestRef, provider: 'cloud' | 'server'): void {
 
 function matchesMarker(text: string, marker: string): boolean {
   if (text.includes(marker)) return true;
-  const rawKeyMatch = marker.match(/bitbucket-ai-review:[a-zA-Z0-9_=%&.-]+/);
+  // The key spans pr/commit/model; stopping at ':' would match every review of the same PR.
+  const rawKeyMatch = marker.match(/bitbucket-ai-review:[a-zA-Z0-9_=%&.:!*'~-]+/);
   return rawKeyMatch ? text.includes(rawKeyMatch[0]) : false;
 }
 
@@ -166,6 +172,15 @@ abstract class BaseClient {
         serverMessage = serverMessage.replace(/([a-zA-Z0-9_-]{24,})/g, '[REDACTED]');
       }
       throw new BitbucketHttpError(response.status, response.statusText, url, serverMessage);
+    }
+  }
+
+  protected async text(url: string): Promise<string | undefined> {
+    try {
+      return await (await this.request(url, { headers: { Accept: 'text/plain' } })).text();
+    } catch (error) {
+      if (error instanceof BitbucketHttpError && error.status === 404) return undefined;
+      throw error;
     }
   }
 
@@ -308,6 +323,14 @@ export class BitbucketCloudClient extends BaseClient implements BitbucketClient 
   public async hasCommentMarker(ref: PullRequestRef, marker: string): Promise<boolean> {
     if (!marker) return false;
     return this.visitComments(ref, (comment) => !comment.deleted && matchesMarker(comment.text, marker));
+  }
+
+  public async getFileContent(ref: RepositoryRef, path: string, at?: string): Promise<string | undefined> {
+    requireRef(ref, 'cloud');
+    const repositoryUrl = `${this.apiBaseUrl}/repositories/${encodePath(ref.workspace!)}/${encodePath(ref.repositorySlug)}`;
+    // Cloud's src endpoint needs a revision; fall back to the repository's main branch.
+    const revision = at?.replace(/^refs\/heads\//, '') || string(record((await this.json(repositoryUrl)).mainbranch).name);
+    return this.text(`${repositoryUrl}/src/${encodePath(revision)}/${encodeFilePath(path)}`);
   }
 
   private pullRequestUrl(ref: PullRequestRef): string {
@@ -471,10 +494,13 @@ export class BitbucketServerClient extends BaseClient implements BitbucketClient
     return this.toComment(await this.postJson(`${this.pullRequestUrl(ref)}/comments`, { text }));
   }
 
-  public async addInlineComment(ref: PullRequestRef, text: string, location: InlineCommentLocation): Promise<PullRequestComment> {
+  public async addInlineComment(
+    ref: PullRequestRef, text: string, location: InlineCommentLocation, options: { blocker?: boolean } = {},
+  ): Promise<PullRequestComment> {
     if (!text.trim()) throw new Error('Comment text cannot be empty');
     return this.toComment(await this.postJson(`${this.pullRequestUrl(ref)}/comments`, {
       text,
+      ...(options.blocker ? { severity: 'BLOCKER' } : {}),
       anchor: {
         diffType: 'EFFECTIVE', path: location.path, srcPath: location.srcPath || location.path,
         line: location.line, lineType: location.lineType,
@@ -486,6 +512,12 @@ export class BitbucketServerClient extends BaseClient implements BitbucketClient
   public async hasCommentMarker(ref: PullRequestRef, marker: string): Promise<boolean> {
     if (!marker) return false;
     return this.visitComments(ref, (comment) => !comment.deleted && matchesMarker(comment.text, marker));
+  }
+
+  public async getFileContent(ref: RepositoryRef, path: string, at?: string): Promise<string | undefined> {
+    requireRef(ref, 'server');
+    // Without `at`, Server serves the repository's default branch.
+    return this.text(`${this.apiBaseUrl}/projects/${encodePath(ref.projectKey!)}/repos/${encodePath(ref.repositorySlug)}/raw/${encodeFilePath(path)}${at ? `?at=${encodePath(at)}` : ''}`);
   }
 
   private pullRequestUrl(ref: PullRequestRef): string {

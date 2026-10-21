@@ -1,3 +1,5 @@
+import { parseRepositoryUrl } from '../bitbucket/urlParser';
+
 export interface BitbucketSetupInput {
   action: 'save' | 'test';
   baseUrl: string;
@@ -9,6 +11,9 @@ export interface BitbucketSetupInput {
   automaticReviewEnabled: boolean;
   automaticReviewIntervalMinutes: number;
   repoInstructions: Record<string, string>;
+  /** Shared instructions repository address; empty disables it. */
+  instructionsRepository: string;
+  instructionsBranch: string;
 }
 
 type UnknownRecord = Record<string, unknown>;
@@ -21,6 +26,23 @@ function stringField(value: UnknownRecord, key: string): string {
   const field = value[key];
   if (typeof field !== 'string') throw new Error('Kurulum formu geçersiz.');
   return field.trim();
+}
+
+/** Fields added after the first release may be absent in older form messages. */
+function optionalStringField(value: UnknownRecord, key: string): string {
+  const field = value[key];
+  if (field === undefined) return '';
+  if (typeof field !== 'string') throw new Error('Kurulum formu geçersiz.');
+  return field.trim();
+}
+
+function instructionsRepositoryField(value: string, baseUrl: string): string {
+  if (!value) return '';
+  const repository = parseRepositoryUrl(value);
+  if (new URL(repository.baseUrl).origin !== new URL(baseUrl).origin) {
+    throw new Error('Talimat reposu, Bitbucket Base URL ile aynı sunucuda olmalıdır.');
+  }
+  return value;
 }
 
 function booleanField(value: UnknownRecord, key: string): boolean {
@@ -71,5 +93,7 @@ export function parseBitbucketSetupInput(value: unknown): BitbucketSetupInput {
     automaticReviewEnabled: booleanField(message, 'automaticReviewEnabled'),
     automaticReviewIntervalMinutes: intervalField(message),
     repoInstructions: asRecord(message.repoInstructions) as Record<string, string>,
+    instructionsRepository: instructionsRepositoryField(optionalStringField(message, 'instructionsRepository'), baseUrl),
+    instructionsBranch: optionalStringField(message, 'instructionsBranch'),
   };
 }
