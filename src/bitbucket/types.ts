@@ -100,7 +100,8 @@ export interface InlineCommentOptions {
 
 export interface BitbucketClient {
   listRepositories(): Promise<Repository[]>;
-  listOpenPullRequestsForReviewer(): Promise<PullRequest[]>;
+  /** Open pull requests the user reviews; with `includeAuthored`, also those the user opened. */
+  listOpenPullRequestsForReviewer(options?: { includeAuthored?: boolean }): Promise<PullRequest[]>;
   getPullRequestDiff(ref: PullRequestRef): Promise<string>;
   getLatestCommitHash(ref: PullRequestRef): Promise<string>;
   /** File text at a commit or ref (default branch when omitted); undefined when the file does not exist there. */

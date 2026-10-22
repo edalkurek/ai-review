@@ -175,6 +175,7 @@ Değiştirilen kod üzerinden olası hataları, güvenlik açıklarını ve perf
 | Talimat reposu adresi / Dal | Ekipçe paylaşılan talimatların tutulduğu Bitbucket reposu ([Ortak talimat reposu](#-ortak-talimat-reposu)) |
 | Auto-Review: Enabled | Otomatik PR incelemesini açar veya kapatır |
 | Auto-Review: Interval Minutes | Otomatik kontrol aralığı; varsayılan 5 dakika |
+| Kendi PR'larımı da incele | Reviewer olduğunuz PR'ların yanında kendi açtığınız PR'ları da listeler, inceler ve yorumlar (otomatik inceleme dahil); varsayılan kapalı |
 
 Eklentide hazır model seçenekleri olarak `cyankiwi/Qwen3.6-35B-A3B-AWQ-4bit` ve `openai/gpt-oss-120b` bulunur. Kullanılacak modelin bağlı olduğunuz serviste erişilebilir olması gerekir.
 

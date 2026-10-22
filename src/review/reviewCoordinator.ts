@@ -37,8 +37,8 @@ export class ReviewCoordinator {
   ) {}
 
   public async listPullRequests(): Promise<PullRequest[]> {
-    const { bitbucket } = await this.createBitbucket();
-    return bitbucket.listOpenPullRequestsForReviewer();
+    const { bitbucket, config } = await this.createBitbucket();
+    return bitbucket.listOpenPullRequestsForReviewer({ includeAuthored: config.review.includeOwnPullRequests });
   }
 
   public async listRepositories(): Promise<Repository[]> {

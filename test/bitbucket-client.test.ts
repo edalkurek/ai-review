@@ -166,6 +166,27 @@ test('Server uses dashboard pagination and normalizes pull requests', async () =
   assert.match(mock.seen[1].url, /start=100$/);
 });
 
+test('Server also lists authored pull requests when asked, without duplicates', async () => {
+  const pr = (id: number) => ({
+    id, title: `PR ${id}`, state: 'OPEN', author: { user: { slug: 'me', displayName: 'Me' } },
+    fromRef: { displayId: 'feature', latestCommit: 'cafe' },
+    toRef: { displayId: 'main', repository: { slug: 'widgets', project: { key: 'APP' } } },
+    links: { self: [{ href: `https://git.example.test/bitbucket/projects/APP/repos/widgets/pull-requests/${id}` }] },
+  });
+  const mock = mockFetch((url) => jsonResponse({
+    values: url.includes('role=AUTHOR') ? [pr(2), pr(3)] : [pr(1), pr(2)], isLastPage: true,
+  }));
+  const client = new BitbucketServerClient({ provider: 'server', baseUrl: serverRef.baseUrl, auth: { method: 'bearer', token: 'test' } }, mock.fetch);
+
+  const reviewerOnly = await client.listOpenPullRequestsForReviewer();
+  assert.deepEqual(reviewerOnly.map((item) => item.ref.pullRequestId), [1, 2]);
+  assert.equal(mock.seen.length, 1);
+
+  const withAuthored = await client.listOpenPullRequestsForReviewer({ includeAuthored: true });
+  assert.deepEqual(withAuthored.map((item) => item.ref.pullRequestId), [1, 2, 3]);
+  assert.match(mock.seen[2].url, /role=AUTHOR&state=OPEN/);
+});
+
 test('Server gets PR data, posts a general comment, and finds duplicate markers', async () => {
   const mock = mockFetch((url, init) => {
     if (url.endsWith('.diff')) return new Response('server diff');

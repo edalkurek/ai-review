@@ -240,8 +240,9 @@ export class BitbucketCloudClient extends BaseClient implements BitbucketClient 
     return result;
   }
 
-  public async listOpenPullRequestsForReviewer(): Promise<PullRequest[]> {
+  public async listOpenPullRequestsForReviewer(options: { includeAuthored?: boolean } = {}): Promise<PullRequest[]> {
     const result: PullRequest[] = [];
+    const includeAuthored = Boolean(options.includeAuthored);
 
     if (this.config.workspace) {
       const workspace = encodePath(this.config.workspace);
@@ -253,7 +254,7 @@ export class BitbucketCloudClient extends BaseClient implements BitbucketClient 
           if (repositorySlug) {
             await this.appendReviewerPullRequests(
               `${this.apiBaseUrl}/repositories/${workspace}/${encodePath(repositorySlug)}/pullrequests?state=OPEN&pagelen=50`,
-              result,
+              result, includeAuthored,
             );
           }
         }
@@ -267,19 +268,19 @@ export class BitbucketCloudClient extends BaseClient implements BitbucketClient 
     const query = encodeURIComponent('state="OPEN"');
     await this.appendReviewerPullRequests(
       `${this.apiBaseUrl}/pullrequests/${reviewer}?q=${query}&pagelen=50`,
-      result,
+      result, includeAuthored,
     );
     return result;
   }
 
-  private async appendReviewerPullRequests(firstPage: string, result: PullRequest[]): Promise<void> {
+  private async appendReviewerPullRequests(firstPage: string, result: PullRequest[], includeAuthored: boolean): Promise<void> {
     let next: string | undefined = firstPage;
     while (next) {
       const page = await this.json(next);
       for (const item of values(page.values)) {
         const pr = this.toPullRequest(record(item));
-        // The selected_user endpoint also includes authored/participant PRs. Keep only reviewer PRs.
-        if (this.isReviewer(record(item))) result.push(pr);
+        // The selected_user endpoint also includes authored/participant PRs. Keep reviewer PRs (and authored ones if asked).
+        if (this.isReviewer(record(item)) || (includeAuthored && this.isUser(record(record(item).author)))) result.push(pr);
       }
       next = string(page.next) || undefined;
     }
@@ -360,13 +361,14 @@ export class BitbucketCloudClient extends BaseClient implements BitbucketClient 
   }
 
   private isReviewer(item: UnknownRecord): boolean {
+    return values(item.reviewers).some((candidate) => this.isUser(record(candidate)));
+  }
+
+  private isUser(user: UnknownRecord): boolean {
     const expected = this.config.reviewer.toLowerCase().replace(/[{}]/g, '');
-    return values(item.reviewers).some((candidate) => {
-      const reviewer = record(candidate);
-      return [reviewer.uuid, reviewer.username, reviewer.nickname, reviewer.account_id]
-        .map((value) => string(value).toLowerCase().replace(/[{}]/g, ''))
-        .includes(expected);
-    });
+    return [user.uuid, user.username, user.nickname, user.account_id]
+      .map((value) => string(value).toLowerCase().replace(/[{}]/g, ''))
+      .includes(expected);
   }
 
   private toPullRequest(item: UnknownRecord): PullRequest {
@@ -459,19 +461,26 @@ export class BitbucketServerClient extends BaseClient implements BitbucketClient
     return result;
   }
 
-  public async listOpenPullRequestsForReviewer(): Promise<PullRequest[]> {
-    let start = 0;
-    const result: PullRequest[] = [];
-    do {
-      const url = `${this.apiBaseUrl}/dashboard/pull-requests?role=REVIEWER&state=OPEN&limit=100&start=${start}`;
-      const page = await this.json(url);
-      for (const item of values(page.values)) result.push(this.toPullRequest(record(item)));
-      if (Boolean(page.isLastPage)) break;
-      const next = number(page.nextPageStart);
-      if (!Number.isFinite(next) || next <= start) break;
-      start = next;
-    } while (true);
-    return result;
+  public async listOpenPullRequestsForReviewer(options: { includeAuthored?: boolean } = {}): Promise<PullRequest[]> {
+    // Keyed by repository and id: a pull request can appear under both roles.
+    const result = new Map<string, PullRequest>();
+    for (const role of options.includeAuthored ? ['REVIEWER', 'AUTHOR'] : ['REVIEWER']) {
+      let start = 0;
+      do {
+        const url = `${this.apiBaseUrl}/dashboard/pull-requests?role=${role}&state=OPEN&limit=100&start=${start}`;
+        const page = await this.json(url);
+        for (const item of values(page.values)) {
+          const pr = this.toPullRequest(record(item));
+          const key = `${pr.ref.projectKey}/${pr.ref.repositorySlug}/${pr.ref.pullRequestId}`;
+          if (!result.has(key)) result.set(key, pr);
+        }
+        if (Boolean(page.isLastPage)) break;
+        const next = number(page.nextPageStart);
+        if (!Number.isFinite(next) || next <= start) break;
+        start = next;
+      } while (true);
+    }
+    return [...result.values()];
   }
 
   public async getPullRequestDiff(ref: PullRequestRef): Promise<string> {

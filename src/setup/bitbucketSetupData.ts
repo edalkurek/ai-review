@@ -10,6 +10,8 @@ export interface BitbucketSetupInput {
   modelApiKey: string;
   automaticReviewEnabled: boolean;
   automaticReviewIntervalMinutes: number;
+  /** Also review pull requests the user authored. */
+  includeOwnPullRequests: boolean;
   repoInstructions: Record<string, string>;
   /** Shared instructions repository address; empty disables it. */
   instructionsRepository: string;
@@ -92,6 +94,7 @@ export function parseBitbucketSetupInput(value: unknown): BitbucketSetupInput {
     modelApiKey: stringField(message, 'modelApiKey'),
     automaticReviewEnabled: booleanField(message, 'automaticReviewEnabled'),
     automaticReviewIntervalMinutes: intervalField(message),
+    includeOwnPullRequests: message.includeOwnPullRequests === true,
     repoInstructions: asRecord(message.repoInstructions) as Record<string, string>,
     instructionsRepository: instructionsRepositoryField(optionalStringField(message, 'instructionsRepository'), baseUrl),
     instructionsBranch: optionalStringField(message, 'instructionsBranch'),

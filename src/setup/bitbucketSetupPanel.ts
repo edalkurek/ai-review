@@ -16,6 +16,7 @@ interface SetupViewState {
   modelApiKeyStored: boolean;
   automaticReviewEnabled: boolean;
   automaticReviewIntervalMinutes: number;
+  includeOwnPullRequests: boolean;
   repoInstructions: Record<string, string>;
   instructionsRepository: string;
   instructionsBranch: string;
@@ -94,6 +95,7 @@ async function readViewState(secrets: SecretStore): Promise<SetupViewState> {
     modelApiKeyStored: Boolean((await secrets.get('modelApiKey')) || configuration.get<string>('model.apiKey', '').trim()),
     automaticReviewEnabled: configuration.get<boolean>('automaticReview.enabled', false),
     automaticReviewIntervalMinutes: configuration.get<number>('automaticReview.intervalMinutes', 5),
+    includeOwnPullRequests: configuration.get<boolean>('review.includeOwnPullRequests', false),
     repoInstructions: configuration.get<Record<string, string>>('review.repoInstructions', {}),
     instructionsRepository: configuration.get<string>('review.instructionsRepository', ''),
     instructionsBranch: configuration.get<string>('review.instructionsBranch', ''),
@@ -117,6 +119,7 @@ async function saveSetup(input: BitbucketSetupInput, secrets: SecretStore): Prom
   if (input.modelApiKey) await secrets.set('modelApiKey', input.modelApiKey);
   await configuration.update('automaticReview.intervalMinutes', input.automaticReviewIntervalMinutes, target);
   await configuration.update('automaticReview.enabled', input.automaticReviewEnabled, target);
+  await configuration.update('review.includeOwnPullRequests', input.includeOwnPullRequests, target);
   await configuration.update('review.repoInstructions', input.repoInstructions, target);
   await configuration.update('review.instructionsRepository', input.instructionsRepository, target);
   await configuration.update('review.instructionsBranch', input.instructionsBranch, target);
@@ -157,6 +160,7 @@ function setupHtml(state: SetupViewState): string {
     <form id="setup"><div class="grid">
       <div><label class="check" for="automaticReviewEnabled"><input id="automaticReviewEnabled" type="checkbox"${state.automaticReviewEnabled ? ' checked' : ''}> Auto-Review: Enabled</label></div>
       <div><label for="automaticReviewIntervalMinutes">Auto-Review: Interval Minutes</label><input id="automaticReviewIntervalMinutes" type="number" min="1" max="1440" required value="${state.automaticReviewIntervalMinutes}"></div>
+      <div class="wide"><label class="check" for="includeOwnPullRequests"><input id="includeOwnPullRequests" type="checkbox"${state.includeOwnPullRequests ? ' checked' : ''}> Kendi PR'larımı da incele</label><small>Reviewer olduğunuz PR'ların yanında kendi açtığınız PR'lar da listelenir, incelenir ve yorumlanır.</small></div>
       <div class="wide"><label for="baseUrl">Bitbucket Base URL</label><input id="baseUrl" type="url" required value="${escapeAttribute(state.baseUrl)}" placeholder="https://sdlc.yapikredi.com.tr/bitbucket"><small>Bitbucket Server/Data Center kök adresi.</small></div>
       <div class="wide"><label for="extraInstructions">Genel Extra Instructions</label><textarea id="extraInstructions" placeholder="Tüm projeler için geçerli ekstra review kuralları.">${escapeHtml(state.extraInstructions)}</textarea></div>
 
@@ -352,7 +356,7 @@ function setupHtml(state: SetupViewState): string {
           extraInstructions: byId('extraInstructions').value, modelName: effectiveModel,
           modelBaseUrl: byId('modelBaseUrl').value, bitbucketToken: byId('bitbucketToken').value,
           modelApiKey: byId('modelApiKey').value, automaticReviewEnabled: byId('automaticReviewEnabled').checked,
-          automaticReviewIntervalMinutes: Number(byId('automaticReviewIntervalMinutes').value), repoInstructions: window.repoInstructions,
+          automaticReviewIntervalMinutes: Number(byId('automaticReviewIntervalMinutes').value), includeOwnPullRequests: byId('includeOwnPullRequests').checked, repoInstructions: window.repoInstructions,
           instructionsRepository: byId('instructionsRepository').value, instructionsBranch: byId('instructionsBranch').value });
       }));
       window.addEventListener('message', (event) => {

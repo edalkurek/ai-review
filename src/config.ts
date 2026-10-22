@@ -27,6 +27,8 @@ export interface ExtensionConfig {
     readonly minConfidence: RiskLevel;
     readonly contextLines: number;
     readonly sharedInstructions?: SharedInstructionsSettings;
+    /** Also list and review pull requests the user authored, not only those they review. */
+    readonly includeOwnPullRequests: boolean;
   };
   readonly publish: {
     readonly highSeverityAsTask: boolean;
@@ -140,6 +142,7 @@ export function getExtensionConfig(): ExtensionConfig {
       minConfidence: readMinConfidence(configuration),
       contextLines: readContextLines(configuration),
       sharedInstructions: readSharedInstructions(configuration, bitbucketBaseUrl),
+      includeOwnPullRequests: configuration.get<boolean>('review.includeOwnPullRequests', false),
     },
     publish: {
       highSeverityAsTask: configuration.get<boolean>('publish.highSeverityAsTask', true),

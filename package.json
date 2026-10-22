@@ -1,7 +1,7 @@
 {
   "name": "bitbucket-ai-review",
   "displayName": "YKB AI Review",
-  "version": "0.4.0",
+  "version": "0.5.0",
   "icon": "media/icon.png",
   "publisher": "ykb",
   "license": "UNLICENSED",
@@ -107,6 +107,12 @@
           "maximum": 1440,
           "description": "Otomatik review kontrol aralığı (dakika).",
           "order": 20
+        },
+        "bitbucketAiReview.review.includeOwnPullRequests": {
+          "type": "boolean",
+          "default": false,
+          "description": "Reviewer olduğunuz PR'ların yanında kendi açtığınız PR'ları da listele, incele ve yorum yaz (otomatik inceleme dahil).",
+          "order": 25
         },
         "bitbucketAiReview.review.extraInstructions": {
           "type": "string",
