@@ -84,6 +84,18 @@ export interface InlineCommentLocation {
   content?: string;
 }
 
+/** Commits of the pull request's effective diff; Bitbucket Server anchors line comments to this diff. */
+export interface DiffHashes {
+  fromHash: string;
+  toHash: string;
+}
+
+export interface InlineCommentOptions {
+  blocker?: boolean;
+  /** Without them Bitbucket Server may not find the line and attach the comment to the file instead. */
+  hashes?: DiffHashes;
+}
+
 export interface BitbucketClient {
   listRepositories(): Promise<Repository[]>;
   listOpenPullRequestsForReviewer(): Promise<PullRequest[]>;
@@ -94,7 +106,9 @@ export interface BitbucketClient {
   listPullRequestComments(ref: PullRequestRef): Promise<PullRequestComment[]>;
   addGeneralComment(ref: PullRequestRef, text: string): Promise<PullRequestComment>;
   /** `blocker` opens the comment as a task that must be resolved (Bitbucket Server only). */
-  addInlineComment(ref: PullRequestRef, text: string, location: InlineCommentLocation, options?: { blocker?: boolean }): Promise<PullRequestComment>;
+  addInlineComment(ref: PullRequestRef, text: string, location: InlineCommentLocation, options?: InlineCommentOptions): Promise<PullRequestComment>;
+  /** Bitbucket Server only; undefined when the hashes are unavailable. */
+  getEffectiveDiffHashes?(ref: PullRequestRef): Promise<DiffHashes | undefined>;
   hasCommentMarker(ref: PullRequestRef, marker: string): Promise<boolean>;
 }
 

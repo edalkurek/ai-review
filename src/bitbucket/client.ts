@@ -12,8 +12,10 @@ import {
   BitbucketConfig,
   BitbucketHttpError,
   BitbucketServerConfig,
+  DiffHashes,
   FetchLike,
   InlineCommentLocation,
+  InlineCommentOptions,
   PullRequest,
   PullRequestAuthor,
   PullRequestComment,
@@ -495,18 +497,29 @@ export class BitbucketServerClient extends BaseClient implements BitbucketClient
   }
 
   public async addInlineComment(
-    ref: PullRequestRef, text: string, location: InlineCommentLocation, options: { blocker?: boolean } = {},
+    ref: PullRequestRef, text: string, location: InlineCommentLocation, options: InlineCommentOptions = {},
   ): Promise<PullRequestComment> {
     if (!text.trim()) throw new Error('Comment text cannot be empty');
     return this.toComment(await this.postJson(`${this.pullRequestUrl(ref)}/comments`, {
       text,
       ...(options.blocker ? { severity: 'BLOCKER' } : {}),
       anchor: {
-        diffType: 'EFFECTIVE', path: location.path, srcPath: location.srcPath || location.path,
+        diffType: 'EFFECTIVE',
+        ...(options.hashes ? { fromHash: options.hashes.fromHash, toHash: options.hashes.toHash } : {}),
+        path: location.path,
+        // Only for renames: a source path that does not exist (e.g. for a new file) breaks the anchor.
+        ...(location.srcPath ? { srcPath: location.srcPath } : {}),
         line: location.line, lineType: location.lineType,
         fileType: location.side === 'old' ? 'FROM' : 'TO',
       },
     }));
+  }
+
+  public async getEffectiveDiffHashes(ref: PullRequestRef): Promise<DiffHashes | undefined> {
+    const page = await this.json(`${this.pullRequestUrl(ref)}/changes?limit=1`);
+    const fromHash = string(page.fromHash);
+    const toHash = string(page.toHash);
+    return fromHash && toHash ? { fromHash, toHash } : undefined;
   }
 
   public async hasCommentMarker(ref: PullRequestRef, marker: string): Promise<boolean> {

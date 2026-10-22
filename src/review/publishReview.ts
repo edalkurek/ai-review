@@ -77,12 +77,15 @@ export async function publishReview(
     group.comments.add(`${formatInlineComment(finding)}\n\n${hiddenMarker(findingKey)}`);
     group.findings.push(finding);
   }
+  // Best effort: the anchor still works without hashes on most Bitbucket Server versions.
+  const hashes = groups.size && client.getEffectiveDiffHashes
+    ? await client.getEffectiveDiffHashes(ref).catch(() => undefined) : undefined;
   const failures: unknown[] = [];
   for (const [id, { location, comments, findings }] of groups) {
     const text = [...comments].join('\n\n---\n\n');
     try {
       const blocker = Boolean(options.highSeverityAsTask) && findings.some((finding) => finding.severity === 'high');
-      await once(id, text, (body) => client.addInlineComment(ref, body, location, { blocker }));
+      await once(id, text, (body) => client.addInlineComment(ref, body, location, { blocker, hashes }));
       for (const finding of findings) inlineFindings.add(finding);
     } catch (error) {
       failures.push(error);

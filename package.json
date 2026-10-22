@@ -1,7 +1,7 @@
 {
   "name": "bitbucket-ai-review",
   "displayName": "YKB AI Review",
-  "version": "0.3.0",
+  "version": "0.3.1",
   "icon": "media/icon.png",
   "publisher": "ykb",
   "license": "UNLICENSED",

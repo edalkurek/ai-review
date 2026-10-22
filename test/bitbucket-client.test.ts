@@ -56,7 +56,7 @@ test('Server and Cloud post inline anchors on the correct diff side', async () =
   await server.addInlineComment(serverRef, 'review', { path: 'new.ts', srcPath: 'old.ts', line: 12, side: 'old', lineType: 'REMOVED' });
   assert.deepEqual(JSON.parse(String(mock.seen[0].init.body)).anchor, { diffType: 'EFFECTIVE', path: 'new.ts', srcPath: 'old.ts', line: 12, lineType: 'REMOVED', fileType: 'FROM' });
   await server.addInlineComment(serverRef, 'review', { path: 'new.ts', line: 15, side: 'new', lineType: 'ADDED' });
-  assert.equal(JSON.parse(String(mock.seen[1].init.body)).anchor.fileType, 'TO');
+  assert.deepEqual(JSON.parse(String(mock.seen[1].init.body)).anchor, { diffType: 'EFFECTIVE', path: 'new.ts', line: 15, lineType: 'ADDED', fileType: 'TO' });
   for (const side of ['old', 'new'] as const) {
     await cloud.addInlineComment(cloudRef, 'review', { path: 'a.ts', line: 4, side, lineType: side === 'old' ? 'REMOVED' : 'ADDED' });
   }
@@ -316,4 +316,18 @@ test('Server reads shared files from a branch or, without one, from the default 
   await server.getFileContent(rules, 'general.md');
   assert.equal(mock.seen[0].url, 'https://git.example.test/bitbucket/rest/api/1.0/projects/AI/repos/rules/raw/projects/PAY/general.md?at=refs%2Fheads%2Fmain');
   assert.equal(mock.seen[1].url, 'https://git.example.test/bitbucket/rest/api/1.0/projects/AI/repos/rules/raw/general.md');
+});
+
+test('Server anchors line comments to the effective diff commits', async () => {
+  const mock = mockFetch((url) => url.includes('/changes')
+    ? jsonResponse({ fromHash: 'src-tip', toHash: 'merge-base', values: [] })
+    : jsonResponse({ id: 1, text: 'review' }));
+  const server = new BitbucketServerClient({ provider: 'server', baseUrl: serverRef.baseUrl, auth: { method: 'bearer', token: 'test' } }, mock.fetch);
+  const hashes = await server.getEffectiveDiffHashes(serverRef);
+  assert.deepEqual(hashes, { fromHash: 'src-tip', toHash: 'merge-base' });
+  await server.addInlineComment(serverRef, 'review', { path: 'dml/a.sql', line: 3, side: 'new', lineType: 'ADDED' }, { hashes });
+  const anchor = JSON.parse(String(mock.seen[1].init.body)).anchor;
+  assert.equal(anchor.fromHash, 'src-tip');
+  assert.equal(anchor.toHash, 'merge-base');
+  assert.equal(anchor.srcPath, undefined);
 });
