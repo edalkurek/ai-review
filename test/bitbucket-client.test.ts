@@ -316,6 +316,8 @@ test('Server reads shared files from a branch or, without one, from the default 
   await server.getFileContent(rules, 'general.md');
   assert.equal(mock.seen[0].url, 'https://git.example.test/bitbucket/rest/api/1.0/projects/AI/repos/rules/raw/projects/PAY/general.md?at=refs%2Fheads%2Fmain');
   assert.equal(mock.seen[1].url, 'https://git.example.test/bitbucket/rest/api/1.0/projects/AI/repos/rules/raw/general.md');
+  await server.getFileContent({ ...rules, projectKey: '~t0101505' }, 'general.md');
+  assert.equal(mock.seen[2].url, 'https://git.example.test/bitbucket/rest/api/1.0/projects/~t0101505/repos/rules/raw/general.md');
 });
 
 test('Server anchors line comments to the effective diff commits', async () => {

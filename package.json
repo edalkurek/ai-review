@@ -1,7 +1,7 @@
 {
   "name": "bitbucket-ai-review",
   "displayName": "YKB AI Review",
-  "version": "0.3.2",
+  "version": "0.3.3",
   "icon": "media/icon.png",
   "publisher": "ykb",
   "license": "UNLICENSED",
@@ -118,7 +118,7 @@
         "bitbucketAiReview.review.instructionsRepository": {
           "type": "string",
           "default": "",
-          "markdownDescription": "Ortak AI review talimatlarının tutulduğu Bitbucket reposunun adresi (ör. `https://…/bitbucket/projects/AI/repos/review-instructions`). Repo içinde `general.md` tüm repolara, `projects/<PROJE>/general.md` projeye, `projects/<PROJE>/repos/<repo>.md` tek bir repoya uygulanır. Bu ayarlardaki talimatlar ortak talimatlardan sonra eklenir.",
+          "markdownDescription": "Ortak AI review talimatlarının tutulduğu Bitbucket reposunun adresi (ör. `https://…/bitbucket/projects/AI/repos/review-instructions` veya kişisel repo için `https://…/bitbucket/users/<kullanıcı>/repos/<repo>`). Repo içinde `general.md` tüm repolara, `projects/<PROJE>/general.md` projeye, `projects/<PROJE>/repos/<repo>.md` tek bir repoya uygulanır. Bu ayarlardaki talimatlar ortak talimatlardan sonra eklenir.",
           "order": 41
         },
         "bitbucketAiReview.review.instructionsBranch": {

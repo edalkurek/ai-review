@@ -79,7 +79,10 @@ export function parsePullRequestUrl(value: string): PullRequestRef {
 
 export const parseBitbucketPullRequestUrl = parsePullRequestUrl;
 
-/** Parses a Server/Data Center repository browser URL (`…/projects/P/repos/r[/browse…]`). */
+/**
+ * Parses a Server/Data Center repository browser URL: `…/projects/P/repos/r[/browse…]`, or a personal
+ * repository `…/users/u/repos/r[/browse…]`, which the REST API addresses as project `~u`.
+ */
 export function parseRepositoryUrl(value: string): RepositoryRef {
   let url: URL;
   try {
@@ -91,16 +94,18 @@ export function parseRepositoryUrl(value: string): RepositoryRef {
     throw new Error('Geçersiz Bitbucket repo adresi');
   }
   const segments = url.pathname.split('/').filter(Boolean);
-  const projectsIndex = segments.findIndex((part) => part.toLowerCase() === 'projects');
-  if (projectsIndex < 0 || segments[projectsIndex + 2]?.toLowerCase() !== 'repos' || !segments[projectsIndex + 3]) {
-    throw new Error('Bitbucket repo adresi …/projects/<PROJE>/repos/<repo> biçiminde olmalıdır');
+  const ownerIndex = segments.findIndex((part, index) => ['projects', 'users'].includes(part.toLowerCase())
+    && segments[index + 2]?.toLowerCase() === 'repos' && Boolean(segments[index + 3]));
+  if (ownerIndex < 0) {
+    throw new Error('Bitbucket repo adresi …/projects/<PROJE>/repos/<repo> veya …/users/<kullanıcı>/repos/<repo> biçiminde olmalıdır');
   }
-  const contextPath = segments.slice(0, projectsIndex).join('/');
+  const contextPath = segments.slice(0, ownerIndex).join('/');
+  const owner = decodeSegment(segments[ownerIndex + 1], 'project');
   return {
     provider: 'server',
     baseUrl: `${url.protocol}//${url.host}${contextPath ? `/${contextPath}` : ''}`,
-    projectKey: decodeSegment(segments[projectsIndex + 1], 'project'),
-    repositorySlug: decodeSegment(segments[projectsIndex + 3], 'repository'),
+    projectKey: segments[ownerIndex].toLowerCase() === 'users' ? `~${owner}` : owner,
+    repositorySlug: decodeSegment(segments[ownerIndex + 3], 'repository'),
   };
 }
 

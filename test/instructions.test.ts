@@ -83,6 +83,10 @@ test('cache reuses content within the TTL and serves the last value when a later
 test('parses repository browser URLs and git remotes of Bitbucket Server', () => {
   assert.deepEqual(parseRepositoryUrl('https://git.test/bitbucket/projects/AI/repos/review-instructions/browse/general.md'),
     { provider: 'server', baseUrl: 'https://git.test/bitbucket', projectKey: 'AI', repositorySlug: 'review-instructions' });
+  // Personal repositories: the REST API addresses them as project ~<user>.
+  assert.deepEqual(parseRepositoryUrl('https://git.test/bitbucket/users/t0101505/repos/ai-review-rules/browse'),
+    { provider: 'server', baseUrl: 'https://git.test/bitbucket', projectKey: '~t0101505', repositorySlug: 'ai-review-rules' });
+  assert.throws(() => parseRepositoryUrl('https://git.test/bitbucket/users/t0101505'), /users\/<kullanıcı>\/repos/);
   assert.throws(() => parseRepositoryUrl('https://git.test/bitbucket/projects/AI'), /projects\/<PROJE>\/repos/);
   const expected = { host: 'git.test', projectKey: 'PAY', repositorySlug: 'payment-api' };
   assert.deepEqual(parseRemoteUrl('https://git.test/bitbucket/scm/PAY/payment-api.git'), expected);
