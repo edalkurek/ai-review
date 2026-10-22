@@ -235,6 +235,8 @@ review-instructions/
 
 Proje klasörü Bitbucket'taki proje anahtarıyla (`PAY`) ya da küçük harfle (`pay`) adlandırılabilir; repo dosyasının adı repo slug'ıdır. Olmayan dosyalar atlanır.
 
+IntelliJ eklentisinin düzeni de okunur, böylece tek bir talimat reposu iki eklentiye birden hizmet eder: proje için `projects/PAY.md`, repo için `repos/PAY/payment-api.md`. Aynı katman için iki düzende de dosya varsa yukarıdaki düzen kullanılır.
+
 Bir inceleme için talimatlar genelden özele şu sırayla birleştirilir; çelişki olursa sonra gelen geçerlidir:
 
 1. Ortak repo `general.md`

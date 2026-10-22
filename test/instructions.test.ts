@@ -37,6 +37,18 @@ test('falls back to lower-case folders, skips missing or empty files and reports
   assert.ok(requested.indexOf('projects/PAY/repos/Payment-API.md') < requested.indexOf('projects/pay/repos/payment-api.md'));
 });
 
+test('reads the IntelliJ plugin layout, preferring the native layout when both exist', async () => {
+  const intellij: Record<string, string> = {
+    'projects/PAY.md': 'IntelliJ proje',
+    'repos/PAY/payment-api.md': 'IntelliJ repo',
+  };
+  const fromIntellij = await resolveInstructions(target, { extraInstructions: '', repoInstructions: {} }, async (path) => intellij[path]);
+  assert.deepEqual(fromIntellij.sources, ['projects/PAY.md', 'repos/PAY/payment-api.md']);
+  const both = await resolveInstructions(target, { extraInstructions: '', repoInstructions: {} }, async (path) =>
+    ({ ...intellij, 'projects/PAY/general.md': 'VS Code proje' } as Record<string, string>)[path]);
+  assert.deepEqual(both.sources, ['projects/PAY/general.md', 'repos/PAY/payment-api.md']);
+});
+
 test('without a shared repository only the settings apply, exactly as before', async () => {
   const resolved = await resolveInstructions(target, settings);
   assert.equal(resolved.text, '## Kişisel ayarlar · Genel\nKişisel genel\n\n## Kişisel ayarlar · Repo\nKişisel repo');

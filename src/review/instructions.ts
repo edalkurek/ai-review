@@ -32,9 +32,9 @@ interface Part {
   text: string;
 }
 
-/** Tries the project folder as written in Bitbucket first, then in lower case. */
-function projectFolders(projectKey: string): string[] {
-  return [...new Set([projectKey, projectKey.toLowerCase()])].map((key) => `projects/${key}`);
+/** The project key as written in Bitbucket first, then in lower case. */
+function projectKeys(projectKey: string): string[] {
+  return [...new Set([projectKey, projectKey.toLowerCase()])];
 }
 
 /**
@@ -62,12 +62,22 @@ export async function resolveInstructions(
   };
 
   if (readShared) {
-    const folders = projectFolders(target.projectKey);
+    const keys = projectKeys(target.projectKey);
     const slugs = [...new Set([target.repositorySlug, target.repositorySlug.toLowerCase()])];
+    const repoPaths = (folder: (key: string) => string): string[] =>
+      keys.flatMap((key) => slugs.map((slug) => `${folder(key)}/${slug}.md`));
+    // projects/<KEY>/general.md and projects/<KEY>/repos/<slug>.md, then the IntelliJ plugin's
+    // projects/<KEY>.md and repos/<KEY>/<slug>.md, so one repository serves both plugins.
     const shared: [string, string[]][] = [
       ['Ortak talimatlar · Genel', ['general.md']],
-      [`Ortak talimatlar · ${target.projectKey} projesi`, folders.map((folder) => `${folder}/general.md`)],
-      [`Ortak talimatlar · ${target.repositorySlug} reposu`, folders.flatMap((folder) => slugs.map((slug) => `${folder}/repos/${slug}.md`))],
+      [`Ortak talimatlar · ${target.projectKey} projesi`, [
+        ...keys.map((key) => `projects/${key}/general.md`),
+        ...keys.map((key) => `projects/${key}.md`),
+      ]],
+      [`Ortak talimatlar · ${target.repositorySlug} reposu`, [
+        ...repoPaths((key) => `projects/${key}/repos`),
+        ...repoPaths((key) => `repos/${key}`),
+      ]],
     ];
     for (const [title, paths] of shared) {
       const found = await readFirst(paths);
