@@ -333,3 +333,11 @@ test('Server anchors line comments to the effective diff commits', async () => {
   assert.equal(anchor.toHash, 'merge-base');
   assert.equal(anchor.srcPath, undefined);
 });
+
+test('Server deletes a comment with its version', async () => {
+  const mock = mockFetch(() => new Response(null, { status: 204 }));
+  const server = new BitbucketServerClient({ provider: 'server', baseUrl: serverRef.baseUrl, auth: { method: 'bearer', token: 'test' } }, mock.fetch);
+  await server.deleteComment(serverRef, { id: 42, text: '', version: 3 });
+  assert.equal(mock.seen[0].url, 'https://git.example.test/bitbucket/rest/api/1.0/projects/APP/repos/widgets/pull-requests/7/comments/42?version=3');
+  assert.equal(mock.seen[0].init.method, 'DELETE');
+});

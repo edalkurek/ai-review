@@ -3,7 +3,7 @@ import { OpenAICompatibleClient, reviewDiffInChunks, AIReviewResult, ReviewFindi
 import { BitbucketAuth, BitbucketClient, PullRequest, PullRequestRef, Repository, createBitbucketClient, parseRemoteUrl } from '../bitbucket';
 import { ConfigurationError, ExtensionConfig, getExtensionConfig, getRepoKey } from '../config';
 import { SecretStore } from '../secrets';
-import { createReviewCommentMarker } from './commentFormatter';
+import { createReviewCommentMarker, reviewCommentKey } from './commentFormatter';
 import { showReviewResult } from './resultPanel';
 import { publishReview } from './publishReview';
 
@@ -47,14 +47,11 @@ export class ReviewCoordinator {
   }
 
   public async hasReviewFor(pullRequest: PullRequest): Promise<boolean> {
-    const { bitbucket, config } = await this.createBitbucket();
-    const marker = createReviewCommentMarker({
-      prId: pullRequest.ref.pullRequestId,
-      commitHash: pullRequest.latestCommitHash,
-      modelName: requireModelName(config),
-    });
-    return this.state.get<boolean>(this.reviewKey(pullRequest.ref, marker), false)
-      || bitbucket.hasCommentMarker(pullRequest.ref, marker);
+    const { bitbucket } = await this.createBitbucket();
+    // Any model, IDE or teammate counts: one review per commit for the whole team.
+    const key = reviewCommentKey(pullRequest.ref.pullRequestId, pullRequest.latestCommitHash);
+    return this.state.get<boolean>(this.reviewKey(pullRequest.ref, key), false)
+      || bitbucket.hasCommentMarker(pullRequest.ref, key);
   }
 
   public async review(
@@ -75,6 +72,7 @@ export class ReviewCoordinator {
       commitHash,
       modelName: requireModelName(config),
     });
+    const key = reviewCommentKey(ref.pullRequestId, commitHash);
 
     options.signal?.throwIfAborted();
     const diff = await bitbucket.getPullRequestDiff(ref);
@@ -117,8 +115,8 @@ export class ReviewCoordinator {
     }
 
     const publishFindings = async (findings: readonly ReviewFinding[]): Promise<'published' | 'duplicate'> => {
-      if (this.state.get<boolean>(this.reviewKey(ref, marker), false) || await bitbucket.hasCommentMarker(ref, marker)) {
-        this.output.info(`PR #${ref.pullRequestId}: aynı commit/model için yorum zaten mevcut.`);
+      if (this.state.get<boolean>(this.reviewKey(ref, key), false) || await bitbucket.hasCommentMarker(ref, key)) {
+        this.output.info(`PR #${ref.pullRequestId}: bu commit için yorum zaten mevcut.`);
         return 'duplicate';
       }
       if (await bitbucket.getLatestCommitHash(ref) !== commitHash) {
@@ -130,14 +128,19 @@ export class ReviewCoordinator {
       const riskLevel = findings.reduce<RiskLevel>((highest, finding) =>
         RISK_LEVELS.indexOf(finding.severity) > RISK_LEVELS.indexOf(highest) ? finding.severity : highest, 'low');
       const selected = findings.length === review.findings.length ? review : { ...review, findings: [...findings], riskLevel };
-      const publication = await publishReview(bitbucket, ref, selected, diff, this.reviewKey(ref, marker), this.state, (finding) => {
+      const publication = await publishReview(bitbucket, ref, selected, diff, this.reviewKey(ref, key), this.state, (finding) => {
         const reason = finding.line === undefined
           ? 'Model geçerli satır konumu döndürmedi.'
           : finding.side === undefined
             ? 'Taraf bilgisi eksik; konum diff üzerinde tek bir satırla eşleştirilemedi.'
             : 'Dosya, satır ve taraf bilgisi diff üzerinde bulunamadı.';
         this.output.warn(`PR #${ref.pullRequestId}: satır yorumu genel yoruma alındı (${JSON.stringify({ file: finding.file, line: finding.line, side: finding.side })}). ${reason}`);
-      }, { highSeverityAsTask: config.publish.highSeverityAsTask, existingComments, reviewMarker: marker });
+      }, { highSeverityAsTask: config.publish.highSeverityAsTask, existingComments, reviewMarker: marker, reviewKey: key });
+      if (publication.supersededBy !== undefined) {
+        await this.state.update(this.reviewKey(ref, key), true);
+        this.output.info(`PR #${ref.pullRequestId}: bir ekip arkadaşının aynı commit için incelemesi daha önce yayımlandı (yorum #${publication.supersededBy}); bu incelemenin yorumları geri alındı.`);
+        return 'duplicate';
+      }
       this.output.info(`PR #${ref.pullRequestId}: ${publication.inlineComments} satır yorumu ve 1 genel yorum yayımlandı.`);
       if (publication.generalOnlyFindings > 0) {
         this.output.warn(`PR #${ref.pullRequestId}: ${publication.generalOnlyFindings} bulgu için diff üzerinde kesin satır konumu bulunamadı; bu bulgular genel yorumda yer alıyor.`);
@@ -145,7 +148,7 @@ export class ReviewCoordinator {
       if (publication.skippedExisting > 0) {
         this.output.info(`PR #${ref.pullRequestId}: ${publication.skippedExisting} bulgu önceki bir incelemede zaten satır yorumu olarak eklendiği için tekrar yazılmadı.`);
       }
-      await this.state.update(this.reviewKey(ref, marker), true);
+      await this.state.update(this.reviewKey(ref, key), true);
       return 'published';
     };
 
@@ -161,7 +164,7 @@ export class ReviewCoordinator {
         root: workspaceRoot,
         // Reviewing without publishing lets the user pick which findings reach the pull request.
         onPublish: options.publish ? undefined : async (findings): Promise<string> => await publishFindings(findings) === 'duplicate'
-          ? 'Bu commit/model için yorum zaten mevcut; tekrar yayınlanmadı.'
+          ? 'Bu commit için yorum zaten mevcut; tekrar yayınlanmadı.'
           : `${findings.length} bulgu Bitbucket'a gönderildi.`,
       });
     }

@@ -270,7 +270,7 @@ test('does not repeat findings an earlier review already posted, even after line
   const input = { ...review, findings: [review.findings[0]] };
   await publishReview(client, {} as PullRequestRef, input, diff, 'first', state(), undefined,
     { reviewMarker: '<!-- bitbucket-ai-review:pr=1:commit=a:model=m -->' });
-  assert.match(posted[0], /\[\/\/\]: # \(bitbucket-ai-review:finding=[0-9a-f]{32}\)/);
+  assert.match(posted[0], /\[\/\/\]: # \(bitbucket-ai-review:line=[0-9a-f]{32}\)/);
   assert.match(posted[1], /\[\/\/\]: # \(bitbucket-ai-review:pr=1:commit=a:model=m\)/);
   // Two lines inserted above: same code, same issue, new line number.
   const shifted = diff.replace('@@ -10,2 +20,3 @@', '@@ -10,2 +22,3 @@');
@@ -279,4 +279,78 @@ test('does not repeat findings an earlier review already posted, even after line
   assert.deepEqual(result, { inlineComments: 0, generalOnlyFindings: 0, skippedExisting: 1 });
   assert.equal(posted.length, 3);
   assert.match(posted[2], /1 bulgu ilgili satırlara/);
+});
+
+test('a teammate using another model does not repeat a line an earlier review commented on', async () => {
+  const posted: string[] = [];
+  const client = {
+    addInlineComment: async (_ref, text) => { posted.push(text); return { id: posted.length, text }; },
+    addGeneralComment: async (_ref, text) => { posted.push(text); return { id: posted.length, text }; },
+  } as BitbucketClient;
+  const memory = (): PublicationState => {
+    const saved = new Map<string, unknown>();
+    return { get: <T>(key: string, fallback: T): T => saved.has(key) ? saved.get(key) as T : fallback,
+      update: async (key, value) => { saved.set(key, value); } };
+  };
+  await publishReview(client, {} as PullRequestRef, { ...review, findings: [review.findings[0]] }, diff, 'a', memory());
+  // Same line, different wording and finding type.
+  const other = { ...review.findings[0], type: 'security' as const, message: 'Başka ifade' };
+  const result = await publishReview(client, {} as PullRequestRef, { ...review, findings: [other] }, diff, 'b', memory(),
+    undefined, { existingComments: [...posted] });
+  assert.equal(result.skippedExisting, 1);
+  assert.equal(posted.filter((text) => /Başka ifade/.test(text) && /line=/.test(text)).length, 0);
+});
+
+test('still recognizes line comments written with the 0.3.x finding marker', async () => {
+  const posted: string[] = [];
+  const client = {
+    addInlineComment: async (_ref, text) => { posted.push(text); return { id: 1, text }; },
+    addGeneralComment: async (_ref, text) => { posted.push(text); return { id: 2, text }; },
+  } as BitbucketClient;
+  const state: PublicationState = { get: <T>(_key: string, fallback: T): T => fallback, update: async () => undefined };
+  // sha256(JSON.stringify(['new.ts', 'new', 'bug'])) as 0.3.x computed it.
+  const { createHash } = await import('node:crypto');
+  const legacy = `bitbucket-ai-review:finding=${createHash('sha256').update(JSON.stringify(['new.ts', 'new', 'bug'])).digest('hex').slice(0, 32)}`;
+  const result = await publishReview(client, {} as PullRequestRef, { ...review, findings: [review.findings[0]] }, diff, 'k', state,
+    undefined, { existingComments: [`eski yorum\n\n[//]: # (${legacy})`] });
+  assert.equal(result.skippedExisting, 1);
+  assert.equal(posted.length, 1);
+});
+
+test('when a teammate published the same commit first, this review deletes its own comments', async () => {
+  const key = 'bitbucket-ai-review:pr=1:commit=abc:';
+  const comments: { id: number; text: string; deleted?: boolean }[] = [
+    // A teammate's general comment, posted while this review was running.
+    { id: 5, text: `Özet\n\n[//]: # (${key}model=other)` },
+  ];
+  const deleted: number[] = [];
+  const client = {
+    addInlineComment: async (_ref, text) => { const c = { id: comments.length + 10, text }; comments.push(c); return c; },
+    addGeneralComment: async (_ref, text) => { const c = { id: comments.length + 10, text }; comments.push(c); return c; },
+    listPullRequestComments: async () => comments,
+    deleteComment: async (_ref, comment) => { deleted.push(comment.id); },
+  } as unknown as BitbucketClient;
+  const state: PublicationState = { get: <T>(_key: string, fallback: T): T => fallback, update: async () => undefined };
+  const result = await publishReview(client, {} as PullRequestRef, review, diff, 'race', state, undefined,
+    { reviewMarker: `<!-- ${key}model=m -->`, reviewKey: key });
+  assert.equal(result.supersededBy, 5);
+  assert.deepEqual(deleted.sort(), [11, 12, 13]);
+});
+
+test('the first review of a commit keeps its comments', async () => {
+  const key = 'bitbucket-ai-review:pr=1:commit=abc:';
+  const comments: { id: number; text: string }[] = [];
+  let deletes = 0;
+  const client = {
+    addInlineComment: async (_ref, text) => { const c = { id: comments.length + 1, text }; comments.push(c); return c; },
+    addGeneralComment: async (_ref, text) => { const c = { id: comments.length + 1, text }; comments.push(c); return c; },
+    listPullRequestComments: async () => [...comments, { id: 99, text: `Sonraki inceleme [//]: # (${key}model=x)` }],
+    deleteComment: async () => { deletes++; },
+  } as unknown as BitbucketClient;
+  const state: PublicationState = { get: <T>(_key: string, fallback: T): T => fallback, update: async () => undefined };
+  const result = await publishReview(client, {} as PullRequestRef, review, diff, 'first', state, undefined,
+    { reviewMarker: `<!-- ${key}model=m -->`, reviewKey: key });
+  assert.equal(result.supersededBy, undefined);
+  assert.equal(result.inlineComments, 2);
+  assert.equal(deletes, 0);
 });

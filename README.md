@@ -271,11 +271,19 @@ Otomatik inceleme:
 - Reviewer olduğunuz açık PR’ları kontrol eder.
 - Varsayılan olarak 5 dakikada bir çalışır.
 - Sonuçları otomatik olarak Bitbucket’a yorum şeklinde yayımlar.
-- Aynı PR, commit ve model için tekrar yorum yayımlanmasını önlemeye yönelik kontrol uygular.
+- Ekipte birden fazla kişi eklentiyi kullansa da bir commit yalnızca bir kez yorumlanır (bkz. [Ekip kullanımında tekrar önleme](#-ekip-kullanımında-tekrar-önleme)).
 
 > ⏱️ **Çalışma koşulu:** Otomatik inceleme yalnızca VS Code açıkken çalışır. Varsayılan olarak kapalıdır. Kontrol aralığı 1–1440 dakika arasında ayarlanabilir.
 
 Zamanlayıcıyı beklemeden inceleme başlatmak için durum çubuğu menüsündeki **Şimdi PR’ları Tara ve İncele** seçeneğini kullanabilirsiniz. Bu işlem de sonuçları Bitbucket’a yayımlar.
+
+## 👥 Ekip kullanımında tekrar önleme
+
+Eklentiyi ekipte birden fazla kişi (VS Code veya IntelliJ, farklı modellerle) kullandığında aynı yorumların tekrarlanmaması için:
+
+- **Commit başına tek inceleme:** Bir PR commit'i için ekipten biri yorum yayımladıysa, diğerleri model veya IDE fark etmeksizin tekrar yayımlamaz.
+- **Eşzamanlı yayın:** İki kişi aynı commit'i aynı anda yayımlarsa Bitbucket'ta önce kaydedilen inceleme kalır; sonra gelen kendi yorumlarını otomatik siler.
+- **Satır başına tek yorum:** Önceki bir commit'te veya başka bir kişinin incelemesinde yorum yazılmış bir kod satırına tekrar satır yorumu yazılmaz. Satır numarasına göre değil koduna göre tanınır; satır kaysa da eşleşir.
 
 ## 💻 Yerel değişiklikleri inceleme
 
@@ -313,7 +321,7 @@ SecretStorage’da saklanan kimlik bilgilerini silmek için **YKB AI Review: Kay
 | Bitbucket bağlantısı başarısız | Base URL, ağ erişimi, token geçerliliği ve yetkileri |
 | Model yanıtı alınamıyor | Model servis adresi, model kimliği, ağ erişimi ve API anahtarı |
 | Otomatik inceleme çalışmıyor | VS Code’un açık olması ve Auto PR Review’un etkinliği |
-| Aynı commit için yeni yorum oluşmuyor | İlgili PR, commit ve model için daha önce yorum yayımlanmış olması |
+| Aynı commit için yeni yorum oluşmuyor | Bu commit için ekipten biri (herhangi bir model veya IDE ile) daha önce yorum yayımlamış olabilir |
 | Yerel inceleme başlamıyor | Git deposunun açık olması ve çalışma alanı güveni |
 
 > 📋 **Loglara erişim:** İşlem ayrıntıları ve hata kayıtları için **View → Output** panelini açıp **YKB AI Review** kanalını seçin.

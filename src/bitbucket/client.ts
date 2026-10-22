@@ -327,6 +327,10 @@ export class BitbucketCloudClient extends BaseClient implements BitbucketClient 
     return this.visitComments(ref, (comment) => !comment.deleted && matchesMarker(comment.text, marker));
   }
 
+  public async deleteComment(ref: PullRequestRef, comment: PullRequestComment): Promise<void> {
+    await this.request(`${this.pullRequestUrl(ref)}/comments/${comment.id}`, { method: 'DELETE' });
+  }
+
   public async getFileContent(ref: RepositoryRef, path: string, at?: string): Promise<string | undefined> {
     requireRef(ref, 'cloud');
     const repositoryUrl = `${this.apiBaseUrl}/repositories/${encodePath(ref.workspace!)}/${encodePath(ref.repositorySlug)}`;
@@ -515,6 +519,10 @@ export class BitbucketServerClient extends BaseClient implements BitbucketClient
     }));
   }
 
+  public async deleteComment(ref: PullRequestRef, comment: PullRequestComment): Promise<void> {
+    await this.request(`${this.pullRequestUrl(ref)}/comments/${comment.id}?version=${comment.version ?? 0}`, { method: 'DELETE' });
+  }
+
   public async getEffectiveDiffHashes(ref: PullRequestRef): Promise<DiffHashes | undefined> {
     const page = await this.json(`${this.pullRequestUrl(ref)}/changes?limit=1`);
     const fromHash = string(page.fromHash);
@@ -602,6 +610,7 @@ export class BitbucketServerClient extends BaseClient implements BitbucketClient
       createdAt: typeof item.createdDate === 'number' ? new Date(item.createdDate).toISOString() : undefined,
       updatedAt: typeof item.updatedDate === 'number' ? new Date(item.updatedDate).toISOString() : undefined,
       deleted: Boolean(item.deleted),
+      version: number(item.version),
     };
   }
 

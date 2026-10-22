@@ -72,6 +72,8 @@ export interface PullRequestComment {
   createdAt?: string;
   updatedAt?: string;
   deleted?: boolean;
+  /** Bitbucket Server's optimistic-locking version; required to delete the comment. */
+  version?: number;
 }
 
 export interface InlineCommentLocation {
@@ -107,6 +109,8 @@ export interface BitbucketClient {
   addGeneralComment(ref: PullRequestRef, text: string): Promise<PullRequestComment>;
   /** `blocker` opens the comment as a task that must be resolved (Bitbucket Server only). */
   addInlineComment(ref: PullRequestRef, text: string, location: InlineCommentLocation, options?: InlineCommentOptions): Promise<PullRequestComment>;
+  /** Removes a comment this plugin posted (used when a teammate's review of the same commit came first). */
+  deleteComment?(ref: PullRequestRef, comment: PullRequestComment): Promise<void>;
   /** Bitbucket Server only; undefined when the hashes are unavailable. */
   getEffectiveDiffHashes?(ref: PullRequestRef): Promise<DiffHashes | undefined>;
   hasCommentMarker(ref: PullRequestRef, marker: string): Promise<boolean>;

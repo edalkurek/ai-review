@@ -39,6 +39,14 @@ function markerPart(value: string | number): string {
   return encodeURIComponent(String(value).trim());
 }
 
+/**
+ * Identifies the review of a pull request commit whichever model, IDE or teammate produced it;
+ * the prefix of {@link createReviewCommentMarker} and of the IntelliJ plugin's marker.
+ */
+export function reviewCommentKey(prId: number, commitHash: string): string {
+  return `bitbucket-ai-review:pr=${markerPart(prId)}:commit=${markerPart(commitHash)}:`;
+}
+
 export function createReviewCommentMarker(metadata: ReviewCommentMetadata): string {
   return `<!-- bitbucket-ai-review:pr=${markerPart(metadata.prId)}:commit=${markerPart(metadata.commitHash)}:model=${markerPart(metadata.modelName)} -->`;
 }
